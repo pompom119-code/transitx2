@@ -1,10 +1,14 @@
 import { requestPlan } from './provider.js'
 import { tripFormError } from '../tripDates.js'
 import { planTrip } from './pipeline.js'
-import { localModel, localCapability } from './localModel.js'
+import { LocalWebGPUProvider, localCapability } from './localModel.js'
 import { toTrip } from './tripAdapter.js'
 export const plannerSteps=['正在準備 AI','正在理解你的旅行方式','正在安排每天內容','正在確認景點與餐飲資料','正在檢查完整行程']
-const shouldRunLocal = () => import.meta.env?.VITE_AI_RUNTIME !== 'server' && localCapability().supported
+// Browser-small models failed the full itinerary acceptance tests. Keep them
+// available only when explicitly selected; the validated server provider is
+// the normal runtime once its free-tier credentials are configured.
+const shouldRunLocal = () => import.meta.env?.VITE_AI_RUNTIME === 'local' && localCapability().supported
+const localProvider = new LocalWebGPUProvider()
 const localResolvers = { async resolveDraft(draft, request, signal) {
   const response = await fetch('/api/ai/resolve-draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft, request }), signal })
   const value = await response.json().catch(() => ({}))
@@ -23,7 +27,7 @@ async function localEdit(trip, dayIndex, spotId, signal) {
   const form={destination:trip.destination,startDate:day.date||'',endDate:day.date||'',days:1,dateUnknown:!day.date,
     travelerCount:trip.travelerCount,
     places:existing,optionalNotes:spotId?`用新的景點替換「${replacing.title}」，勿重複現有景點：${existing.join('、')}`:`保留現有景點並重新安排順序：${existing.join('、')}`}
-  const plan=await planTrip(form,profile,localModel,()=>{},signal,localResolvers)
+  const plan=await planTrip(form,profile,localProvider,()=>{},signal,localResolvers)
   const nextDay=toTrip(plan,form,profile).days[0]
   if(!spotId)return {...nextDay,id:day.id,label:day.label,date:day.date,spots:nextDay.spots.map(spot=>{
     const original=day.spots.find(item=>item.title===spot.title)
@@ -40,7 +44,7 @@ export const aiPlanner={
   if(error)throw new Error(error)
   if(!profile)throw new Error('請先選擇旅行設定。')
   if(shouldRunLocal()) {
-   const plan=await planTrip(form,profile,localModel,onProgress,signal,localResolvers)
+   const plan=await planTrip(form,profile,localProvider,onProgress,signal,localResolvers)
    return toTrip(plan,form,profile)
   }
   return requestPlan({operation:'generate',form,profile},onProgress,signal)

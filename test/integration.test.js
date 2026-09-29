@@ -107,7 +107,7 @@ test('HTTP same-origin proxy streams real progress and does not expose environme
  try{
   const status=await(await fetch(base+'/api/status')).text();assert.ok(!status.includes('test-only-secret'))
   const denied=await fetch(base+'/api/ai/plan',{method:'POST',headers:{origin:'https://evil.example','Content-Type':'application/json'},body:'{}'});assert.equal(denied.status,403)
-  const stream=await(await fetch(base+'/api/ai/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).text()
+  const stream=await(await fetch(base+'/api/ai/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'generate',form:{destination:'淡水'},profile:{id:'test'}})})).text()
   const events=stream.trim().split('\n').map(line=>JSON.parse(line));assert.deepEqual(events.map(x=>x.type),['progress','progress','result'])
   const unavailable=await fetch(base+'/api/bus/search?q=307');assert.equal(unavailable.status,503);assert.equal((await unavailable.json()).code,'TDX_NOT_CONFIGURED')
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}

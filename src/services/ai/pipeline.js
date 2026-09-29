@@ -1,17 +1,21 @@
 import { normalizeRequest, assertContract, intentSchema, dayDraftSchema, draftItemSchema, validateDraft } from './contracts.js'
 import { addDays } from '../tripDates.js'
-import { AI_SYSTEM, intentPrompt, draftPrompt, missingItemPrompt } from './planningPrompts.js'
+import { systemForSchema, intentPrompt, draftPrompt, missingItemPrompt } from './planningPrompts.js'
 import { resolveDraft } from './resolvers.js'
 
-async function generateValidated(model, prompt, schema, validate, signal) {
+const retryableOutputCodes = new Set(['NO_OUTPUT', 'NO_JSON_OBJECT', 'OUTPUT_TRUNCATED', 'INVALID_JSON', 'INFERENCE_TIMEOUT'])
+
+export async function generateValidated(model, prompt, schema, validate, signal) {
   let correction = ''
   for (let attempt = 0; attempt < 3; attempt++) {
     if (signal?.aborted) throw signal.reason || new Error('已取消規劃')
     let result, failure
     try {
-      result = await model.generate(AI_SYSTEM, prompt(correction), schema, signal)
+      const payload = prompt(correction)
+      result = await model.generate(systemForSchema(schema, payload), payload, schema, signal)
     } catch (error) {
-      if (error.code !== 'INVALID_JSON' && !/沒有回傳有效 JSON/.test(error.message)) throw error
+      if (error.code && !retryableOutputCodes.has(error.code)) throw error
+      if (!error.code && !/沒有回傳有效 JSON/.test(error.message)) throw error
       failure = error
     }
     try {
@@ -20,9 +24,9 @@ async function generateValidated(model, prompt, schema, validate, signal) {
       validate(result)
       return result
     } catch (error) {
-      if (error.code && error.code !== 'INVALID_JSON') throw error
+      if (error.code && !retryableOutputCodes.has(error.code)) throw error
       correction = `前次結果無效：${error.message}。請修正並完整輸出 JSON。`
-      if (attempt === 2) throw new Error(`AI 回傳資料未通過驗證：${error.message}`, { cause: error })
+      if (attempt === 2) throw new Error('AI 暫時無法完成這次規劃，請稍後再試或縮短旅程天數。', { cause: error })
     }
   }
 }
@@ -73,12 +77,12 @@ export async function planTrip(form, profile, model, onProgress = (_event) => {}
     const oneDay = await generateValidated(model, correction => draftPrompt(request, intent, dayIndex,
       [geographyCorrection, correction].filter(Boolean).join('；')), dayDraftSchema, value => {
       const partial = authoritative(value)
-      if (partial.days[0].items.length >= 9 && (!partial.days[0].items.some(item => item.type === 'food') || !partial.days[0].items.some(item => item.type === 'poi') || partial.days[0].items.filter(item => item.type === 'poi' || item.type === 'activity').length < 2)) throw new Error('九個項目仍缺景點、餐飲或足夠活動')
+      if (partial.days[0].items.length >= 9 && (!partial.days[0].items.some(item => item.type === 'food') || partial.days[0].items.filter(item => item.type === 'poi').length < 2)) throw new Error('九個項目仍缺兩個景點或餐飲')
       validateDraft(partial, oneDayRequest, { requireComplete: false })
     }, signal)
     const day = authoritative(oneDay).days[0]
     const needed = []
-    if (!day.items.some(item => item.type === 'poi')) needed.push('poi')
+    while (day.items.filter(item => item.type === 'poi').length + needed.filter(type => type === 'poi').length < 2) needed.push('poi')
     if (!day.items.some(item => item.type === 'food')) needed.push('food')
     while (day.items.filter(item => item.type === 'poi' || item.type === 'activity').length + needed.filter(type => type === 'poi' || type === 'activity').length < 2) needed.push('activity')
     while (day.items.length + needed.length < 3) needed.push('activity')

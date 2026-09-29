@@ -71,7 +71,7 @@ export function validateDraft(draft, request, { requireComplete = true } = {}) {
     const afternoon = /下午才|午後才|不要太早/.test(request.specialRequirements + request.optionalNotes)
     const startHour = afternoon ? 13 : /慢|輕鬆|悠閒/.test(request.travelPace) ? 10 : 9
     if (duration + Math.max(0, day.items.length - 1) * 20 > (22 - startHour) * 60) throw new Error('單日安排超出可用時間')
-    if (requireComplete && (day.items.length < 3 || !day.items.some(item => item.type === 'poi') || !day.items.some(item => item.type === 'food') || day.items.filter(item => item.type === 'poi' || item.type === 'activity').length < 2)) throw new Error('每日需有景點、餐飲與完整活動安排')
+    if (requireComplete && (day.items.length < 3 || day.items.filter(item => item.type === 'poi').length < 2 || !day.items.some(item => item.type === 'food'))) throw new Error('每日需有至少兩個不同景點與一餐')
     const pois = day.items.filter(item => item.type === 'poi').map(item => normalize(item.name))
     if (new Set(pois).size !== pois.length) throw new Error('同一天不可重複安排同一景點')
     if (pois.some((first, left) => pois.some((second, right) => left !== right && first.length >= 3 && second.includes(first)))) throw new Error('景點名稱高度重疊，可能是同地重複或虛構名稱')

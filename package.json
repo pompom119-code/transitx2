@@ -19,6 +19,7 @@
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "@mlc-ai/web-llm": "^0.2.85",
     "framer-motion": "^12.23.12",
+    "jsonrepair": "^3.15.0",
     "opencc-js": "^1.4.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

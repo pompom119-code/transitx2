@@ -24,3 +24,7 @@ test('client AI gives actionable network and missing-configuration errors',async
  t.mock.method(globalThis,'fetch',async()=>Response.json({message:'尚未設定 GEMINI_API_KEY'},{status:503}))
  await assert.rejects(requestPlan({}),/GEMINI_API_KEY/)
 })
+test('client AI preserves structured failure codes for friendly UI messages', async t => {
+ t.mock.method(globalThis,'fetch',async()=>new Response('{"type":"error","code":"AI_NOT_CONFIGURED","message":"缺少服務設定"}\n'))
+ await assert.rejects(requestPlan({operation:'generate'}), error => error.code === 'AI_NOT_CONFIGURED')
+})

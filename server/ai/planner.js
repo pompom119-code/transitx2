@@ -42,7 +42,7 @@ export function createPlanner(env, dependencies = {}) {
     try {
       const resolvers = dependencies.resolvers || { resolveDraft: (draft, request, abortSignal) => verifyAndResolve(draft, request, places, abortSignal) }
       const plan = await planTrip(form, profile, model, event => progress(event), signal, resolvers)
-      const result = toTrip(plan, form, profile, `Gemini / ${MODEL}`)
+      const result = toTrip(plan, form, profile, `Gemini / ${provider.model || MODEL}`)
       if (operation === 'generate') return result
       const newDay = result.days[0]
       if (operation === 'replan') {

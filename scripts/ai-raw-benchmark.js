@@ -1,5 +1,6 @@
 import { localModel } from '../src/services/ai/localModel.js'
-import { AI_SYSTEM, intentPrompt, draftPrompt } from '../src/services/ai/planningPrompts.js'
+import { systemForSchema, intentPrompt, draftPrompt } from '../src/services/ai/planningPrompts.js'
+import { parseModelOutput } from '../src/services/ai/parseModelOutput.js'
 import { normalizeRequest, assertContract, intentSchema, dayDraftSchema, validateDraft } from '../src/services/ai/contracts.js'
 
 const cases = [
@@ -53,13 +54,17 @@ for (const [name,destination,companions,travelerCount,interests,exploration,walk
       status.textContent=`${name} / ${iteration}：準備模型`
       await comparisonModel.prepare(update=>{status.textContent=`${name} / ${iteration}：${update.label} ${update.downloadPercent??''}%`})
       status.textContent=`${name} / ${iteration}：意圖策略`
-      const intent=await comparisonModel.generate(AI_SYSTEM,intentPrompt(request),intentSchema)
-      record.rawIntent=intent
+      const intentReply=await comparisonModel.generateRaw?.(systemForSchema(intentSchema),intentPrompt(request),intentSchema)
+      record.rawIntent=intentReply || null
+      const intent=intentReply ? parseModelOutput(intentReply.content,intentReply).value : await comparisonModel.generate(systemForSchema(intentSchema),intentPrompt(request),intentSchema)
+      if (!intentReply) record.rawIntent=intent
       assertContract(intent,intentSchema)
       record.intentJson=true
       status.textContent=`${name} / ${iteration}：單日草稿`
-      const day=await comparisonModel.generate(AI_SYSTEM,draftPrompt(request,intent,0),dayDraftSchema)
-      record.rawDay=day
+      const dayReply=await comparisonModel.generateRaw?.(systemForSchema(dayDraftSchema),draftPrompt(request,intent,0),dayDraftSchema)
+      record.rawDay=dayReply || null
+      const day=dayReply ? parseModelOutput(dayReply.content,dayReply).value : await comparisonModel.generate(systemForSchema(dayDraftSchema),draftPrompt(request,intent,0),dayDraftSchema)
+      if (!dayReply) record.rawDay=day
       assertContract(day,dayDraftSchema)
       record.dayJson=true
       record.poiNames=day.items.filter(item=>item.type==='poi').map(item=>item.name)

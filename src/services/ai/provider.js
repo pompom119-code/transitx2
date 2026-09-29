@@ -1,7 +1,7 @@
 async function readPlan(body, onProgress = undefined, signal = undefined) {
  const timeout=AbortSignal.timeout(210000)
  const response=await fetch('/api/ai/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:signal?AbortSignal.any([signal,timeout]):timeout})
- if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.message||'AI 暫時無法規劃，請稍後再試。')}
+ if(!response.ok){const payload=await response.json().catch(()=>({}));throw Object.assign(new Error(payload.message||'AI 暫時無法規劃，請稍後再試。'),{code:payload.code})}
  if(!response.body)throw new Error('此瀏覽器無法接收規劃進度。')
  const reader=response.body.getReader(),decoder=new TextDecoder()
  let pending='',result
@@ -9,7 +9,7 @@ async function readPlan(body, onProgress = undefined, signal = undefined) {
   if(!line.trim())return
   const event=JSON.parse(line)
   if(event.type==='progress')onProgress?.(event.step)
-  if(event.type==='error')throw new Error(event.message)
+  if(event.type==='error')throw Object.assign(new Error(event.message),{code:event.code,retryAfterMs:event.retryAfterMs})
   if(event.type==='result')result=event.value
  }
  try{

@@ -6,8 +6,11 @@ import OpenCC from 'opencc-js'
 const toSimplified = OpenCC.Converter({ from: 'tw', to: 'cn' })
 const normalize = value => toSimplified(String(value || '').normalize('NFKC').replace(/臺/g, '台').replace(/[（(][^）)]*[）)]/g, '')).replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
 const sameName = (a, b) => Boolean(a && b && normalize(a) === normalize(b))
-const recordNames = record => [record.name, ...Object.entries(record.namedetails || {}).filter(([key]) => key === 'name' || key.startsWith('name:')).map(([, value]) => value)].filter(Boolean).flatMap(value => value.split('/'))
+const recordNames = record => [record.name, ...Object.entries(record.namedetails || {})
+  .filter(([key]) => /^(?:name|alt_name|official_name|loc_name)(?::|$)/.test(key))
+  .map(([, value]) => value)].filter(Boolean).flatMap(value => value.split('/'))
 const recordMatches = (record, name) => recordNames(record).some(value => sameName(value, name))
+const foodAreaName = name => String(name).trim().replace(/(?:地區|一帶|周邊|附近)$/u, '').trim()
 const regionMatches = (record, destination) => recordNames(record).some(value => sameName(value, destination) ||
   sameName(value.replace(/[市區县縣省都府州]$/u, ''), destination))
 const isTransportRecord = record => ['station', 'stop', 'bus_stop', 'platform', 'subway_entrance', 'tram_stop', 'proposed'].includes(record.type)
@@ -114,10 +117,12 @@ export async function verifyAndResolve(draft, request, resolver = createPlaceRes
   const verifiedNames = resolved.days.flatMap(day => day.items.filter(item => item.type === 'poi' && item.verificationStatus === 'verified').map(item => item.name))
   const checkedAreas = new Set()
   for (const day of resolved.days) for (const item of day.items) {
-    if (item.type !== 'food' || checkedAreas.has(normalize(item.area))) continue
-    checkedAreas.add(normalize(item.area))
-    if (normalize(item.area) === normalize(request.destination) || verifiedNames.some(name => normalize(name) === normalize(item.area))) continue
-    const area = await resolver.resolvePlace({ name: item.area }, request.destination, region, signal)
+    if (item.type !== 'food') continue
+    const areaName = foodAreaName(item.area)
+    if (checkedAreas.has(normalize(areaName))) continue
+    checkedAreas.add(normalize(areaName))
+    if (normalize(areaName) === normalize(request.destination) || verifiedNames.some(name => normalize(name) === normalize(areaName))) continue
+    const area = await resolver.resolvePlace({ name: areaName }, request.destination, region, signal)
     if (area.verificationStatus !== 'verified') throw new ApiError('FOOD_AREA_UNVERIFIED', `「${item.area}」用餐區域無法確認，未儲存行程。`, 422)
   }
   return resolved

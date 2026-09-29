@@ -25,9 +25,9 @@ npm start
 
 新規劃流程是「旅行設定 + 目的地與日期 + 指定地點 → AI 意圖策略 → 逐日草稿 → Schema／業務驗證 → 真實地點查核 → 行程」。正式路徑沒有固定城市模板，也不會失敗時偷用示範行程。
 
-具 WebGPU 的瀏覽器會優先嘗試下載與快取開源 Qwen3-1.7B 模型，在裝置上以 WebLLM 推論；不需要 AI API key。**這是實驗原型，不是已驗收的正式 AI 服務**：首次下載約 0.90 GiB 權重；24 次真實桌面單次生成只有 16 次完整 JSON、0 次產出符合完整行程規則的草稿。較大的 Qwen3-4B 也做了八組探索性試驗，雖較會輸出 JSON，人工審查仍找到錯誤，且下載／顯存門檻更高，因此沒有改成正式預設。裝置記憶體、網路與 Safari/iPhone 支援亦不可保證。證據見 `LOCAL_AI_BENCHMARK.md`、`AI_ACCEPTANCE_TEST.md`。若模型或驗證失敗，頁面會顯示錯誤，不會儲存假結果或套固定城市模板。
+瀏覽器本機 Qwen3-1.7B / Qwen3.5-2B / Qwen3-4B 經真實 WebGPU 測試，仍未達完整行程可靠性門檻；Qwen3.5-4B 在此裝置未能及時進入推論。故**本機模型不再是預設正式路徑**，只有明確設定 `VITE_AI_RUNTIME=local` 才會啟用實驗模式。它可能下載大量權重、等待數分鐘且最後仍失敗，不應當成正式服務。原始輸出、問題分類與實測見 `LOCAL_AI_FAILURE_ANALYSIS.md`、`LOCAL_AI_BENCHMARK.md`、`AI_ACCEPTANCE_TEST.md`。不會儲存假結果或套固定城市模板。
 
-沒有 WebGPU 時，保留既有同源 Gemini server provider 作為明確備援，預設使用官方現行 `gemini-3.5-flash-lite`；目前未設定 Gemini key，**也未對此模型做真實行程品質驗收**，不能自動成功。若要使用此備援，先自行確認 [Google AI Studio](https://aistudio.google.com/api-keys) 的 Free Tier 專案沒有啟用付費，再於未追蹤的 `.env` 設定 `GEMINI_API_KEY` 與 `GEMINI_FREE_TIER_CONFIRMED=true`。可設定 `VITE_AI_RUNTIME=server` 強制使用它；不要把 key 放進前端、Git 或對話。官方目前列有免費層，但實際配額以帳號介面為準，並非無限制。
+正式路徑現在是同源 Gemini server provider，預設 `gemini-3.7-flash`，並依官方模型清單與 Free Tier／Structured Output 文件限定 5 個 fallback。每個模型最多 3 次 503 退避嘗試，全部忙碌時安全報錯，不用假行程。本機私密 `.env` 已設定使用者提供並確認為 Free Tier 的金鑰，但 2026-09-28 的真實最小生成仍主要收到 Google HTTP 503；一次最小 fallback 測試曾成功，淡水端到端行程仍失敗，**尚未通過真實行程品質驗收**，不能宣稱規劃已穩定成功。詳見 `AI_GEMINI_LIVE_TEST.md`。金鑰曾被貼進聊天，請在 Google AI Studio 旋轉；不要把 key 放進前端、Git 或文件。使用者 session 有冷卻與每日次數、相同請求有短期快取；這些記憶體限制在多實例部署時不是全站硬配額。官方實際配額以帳號介面為準。設定與限制見 `AI_CLOUD_DEPLOYMENT.md`。
 
 地點查核用 OpenStreetMap Nominatim 公開服務，已加快取與節流；這僅適用低流量原型。AI 自提但查不到或跨目的地的 POI／餐飲區域會觸發重規劃，仍不可靠就不儲存；使用者自己指定但查不到的必訪點可保留並標示未驗證。餐飲預設只推薦「區域 + 吃什麼」，不指定店家；店家搜尋尚無 Places Provider，因此 CTA 明確停用。交通段只顯示待確認，不造假路線、分鐘或即時到站。
 
@@ -44,3 +44,5 @@ npm start
 - `LOCAL_AI_BENCHMARK.md`：真實瀏覽器模型試跑與耗時。
 - `AI_ACCEPTANCE_TEST.md`：六組條件 × 三次生成的驗收紀錄。
 - `REAL_DATA_INTEGRATION.md`：前一階段 TDX／Gemini server 整合紀錄；AI 當前狀態以上述新文件為準。
+- `AI_CLOUD_DEPLOYMENT.md`：Gemini Free Tier 查證、金鑰與 Vercel 設定、限流範圍及真實驗收清單。
+- `AI_GEMINI_LIVE_TEST.md`：使用真實金鑰的模型可用性與 HTTP 503 測試紀錄；不包含金鑰。
