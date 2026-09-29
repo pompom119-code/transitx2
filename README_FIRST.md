@@ -21,15 +21,15 @@ npm start
 
 `npm start` 會提供 production build 與同源 API。不能只把 `dist/` 放在純靜態網站，因為公車憑證與地點驗證留在 Node server。預設只監聽 127.0.0.1；公開部署前需重新評估授權、配額、Nominatim 使用政策與伺服器容量。
 
-## AI 旅遊現況
+## TransitX Smart Planner（正式行程核心）
 
-新規劃流程是「旅行設定 + 目的地與日期 + 指定地點 → AI 意圖策略 → 逐日草稿 → Schema／業務驗證 → 真實地點查核 → 行程」。正式路徑沒有固定城市模板，也不會失敗時偷用示範行程。
+正式流程為「旅行設定 + 目的地／日期／指定地點 → 官方地理定位與真實 POI → 偏好評分 → 地理分群 → 路線排序 → 動態排程 → 來源與地理驗證 → 行程」。預設 POI 來源是 Wikimedia 官方 Wikipedia GeoSearch；目的地與使用者指定地點由 OpenStreetMap Nominatim 查核。**不需要 AI API Key、不下載本機模型、不使用固定城市模板，也不會失敗時套用假行程。**
 
-瀏覽器本機 Qwen3-1.7B / Qwen3.5-2B / Qwen3-4B 經真實 WebGPU 測試，仍未達完整行程可靠性門檻；Qwen3.5-4B 在此裝置未能及時進入推論。故**本機模型不再是預設正式路徑**，只有明確設定 `VITE_AI_RUNTIME=local` 才會啟用實驗模式。它可能下載大量權重、等待數分鐘且最後仍失敗，不應當成正式服務。原始輸出、問題分類與實測見 `LOCAL_AI_FAILURE_ANALYSIS.md`、`LOCAL_AI_BENCHMARK.md`、`AI_ACCEPTANCE_TEST.md`。不會儲存假結果或套固定城市模板。
+瀏覽器透過同源 `/api/planner/plan` 呼叫 Node 服務；行程規劃與地點查詢程式位於 `src/services/planner/`、`server/planner/`。服務會將已解析的目的地與 POI 存到 `.cache/`（已忽略版本控制）；兩者已快取時，即使上游暫時不可用，也能在本機伺服器上重新規劃。首次取得資料可能需要十餘秒，快取後演算法通常為數毫秒。結果中的營業時間、道路行走與公車轉乘並未即時解析；出發前請自行確認。餐飲預設只安排附近用餐時間與飲食提醒，不虛構店家。自由文字備註只能辨識明確規則，例如晚出發、步行少、素食與不吃牛肉，無法像 LLM 理解所有語意。
 
-正式路徑現在是同源 Gemini server provider，預設 `gemini-3.7-flash`，並依官方模型清單與 Free Tier／Structured Output 文件限定 5 個 fallback。每個模型最多 3 次 503 退避嘗試，全部忙碌時安全報錯，不用假行程。2026-09-29 從正式專案重啟本機 dev server 後，`/api/status` 回報 AI 已設定；透過 `/api/ai/plan` 的真實淡水／朋友／美食＋拍照／1 天請求成功完成策略、逐日安排、景點與餐飲查核，回傳 `Gemini / gemini-3.5-flash-lite` 行程，約 59 秒。這是**一次真實端到端 server 測試成功**，尚未證明多城市或長期穩定性。前一天 Google HTTP 503 的失敗紀錄及本次通過紀錄見 `AI_GEMINI_LIVE_TEST.md`。金鑰曾被貼進聊天，請在 Google AI Studio 旋轉；不要把 key 放進前端、Git 或文件。使用者 session 有冷卻與每日次數、相同請求有短期快取；這些記憶體限制在多實例部署時不是全站硬配額。官方實際配額以帳號介面為準。設定與限制見 `AI_CLOUD_DEPLOYMENT.md`。
+若需測試另一個官方 OSM POI 來源，可在本機設定 `PLANNER_POI_PROVIDER=overpass`；公開 Overpass 節點可能過載，因此預設使用實測較穩定的 Wikipedia GeoSearch。兩者皆不需 API Key，僅適合低流量原型；正式公開服務應評估用量、服務條款與自建／授權資料來源。使用者介面保留既有排版與互動，原 Gemini、WebGPU 模組留在實驗性 `/api/ai/` 路徑，正式規劃不呼叫。先前 AI 文件屬歷史紀錄，**不再描述目前正式行程核心**。
 
-地點查核用 OpenStreetMap Nominatim 公開服務，已加快取與節流；這僅適用低流量原型。AI 自提但查不到或跨目的地的 POI／餐飲區域會觸發重規劃，仍不可靠就不儲存；使用者自己指定但查不到的必訪點可保留並標示未驗證。餐飲預設只推薦「區域 + 吃什麼」，不指定店家；店家搜尋尚無 Places Provider，因此 CTA 明確停用。交通段只顯示待確認，不造假路線、分鐘或即時到站。
+真實城市、四種淡水 Profile、必訪、重新規劃、替換、資料來源、演算法時間和限制見 `SMART_PLANNER_TEST_REPORT.md`。
 
 ## 公車與本機資料
 
@@ -39,10 +39,6 @@ npm start
 
 ## 相關文件
 
-- `AI_ARCHITECTURE.md`：AI 資料流程與信任邊界。
-- `LOCAL_AI_RESEARCH.md`：WebLLM／Transformers.js／模型比較。
-- `LOCAL_AI_BENCHMARK.md`：真實瀏覽器模型試跑與耗時。
-- `AI_ACCEPTANCE_TEST.md`：六組條件 × 三次生成的驗收紀錄。
-- `REAL_DATA_INTEGRATION.md`：前一階段 TDX／Gemini server 整合紀錄；AI 當前狀態以上述新文件為準。
-- `AI_CLOUD_DEPLOYMENT.md`：Gemini Free Tier 查證、金鑰與 Vercel 設定、限流範圍及真實驗收清單。
-- `AI_GEMINI_LIVE_TEST.md`：使用真實金鑰的模型可用性與 HTTP 503 測試紀錄；不包含金鑰。
+- `SMART_PLANNER_TEST_REPORT.md`：目前正式 Planner 實測與限制。
+- `REAL_DATA_INTEGRATION.md`：公車資料整合與前一階段歷史紀錄。
+- `AI_ARCHITECTURE.md`、`LOCAL_AI_BENCHMARK.md`、`AI_GEMINI_LIVE_TEST.md`：實驗性 AI 的歷史紀錄，不是正式規劃設定步驟。

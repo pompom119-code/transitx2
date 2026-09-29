@@ -54,7 +54,7 @@ export function PageHeader({ title, subtitle = '', back = true, fallback = '/', 
 
 export function BottomNavigation({ active }) {
   const navigate = useNavigate()
-  const items = [['home','首頁','home','/'],['ai','AI 旅遊','ai','/ai'],['traffic','交通','bus','/traffic'],['wander','亂晃','wander','/wander'],['profile','我的','profile','/me']]
+  const items = [['home','首頁','home','/'],['ai','智慧旅遊','ai','/ai'],['traffic','交通','bus','/traffic'],['wander','亂晃','wander','/wander'],['profile','我的','profile','/me']]
   return <nav className="bottom-navigation" aria-label="主要導覽">{items.map(([key,label,icon,path]) => <motion.button type="button" key={key} aria-current={active === key ? 'page' : undefined} className={active === key ? 'active' : ''} onClick={() => navigate(path)} whileTap={{ scale: .95 }}><Icon name={icon} /><span>{label}</span></motion.button>)}</nav>
 }
 

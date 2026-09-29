@@ -18,15 +18,15 @@ const isRegion = record => ['administrative', 'city', 'town', 'suburb', 'village
 const cache = new Map()
 let nextRequestAt = 0
 let queue = Promise.resolve()
-async function nominatim(query, fetcher, signal) {
-  const key = String(query).normalize('NFKC').trim().toLowerCase()
+async function nominatim(query, fetcher, signal, withGeometry = false) {
+  const key = String(query).normalize('NFKC').trim().toLowerCase() + (withGeometry ? ':geo' : '')
   if (cache.has(key)) return cache.get(key)
   const run = async () => {
     const delay = Math.max(0, nextRequestAt - Date.now())
     if (delay) await new Promise(resolve => setTimeout(resolve, delay))
     nextRequestAt = Date.now() + 1100
-    const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({ q: query, format: 'jsonv2', addressdetails: '1', namedetails: '1', limit: '8', 'accept-language': 'zh-TW' })
-    const response = await fetcher(url, { signal, headers: { 'User-Agent': 'TransitX/2.0 (local prototype; place verification)', 'Accept-Language': 'zh-TW' } })
+    const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({ q: query, format: 'jsonv2', addressdetails: '1', namedetails: '1', limit: '8', 'accept-language': 'zh-TW', ...(withGeometry ? { polygon_geojson: '1', polygon_threshold: '0.005' } : {}) })
+    const response = await fetcher(url, { signal, headers: { 'User-Agent': 'TransitX/2.0 (https://github.com/pompom119-code/transitx2; place verification)', 'Accept-Language': 'zh-TW' } })
     if (!response.ok) throw new ApiError('PLACE_PROVIDER', '景點資料來源暫時無法查詢。', 503)
     const data = await response.json()
     if (!Array.isArray(data)) throw new ApiError('PLACE_PROVIDER', '景點資料格式錯誤。', 503)
@@ -49,20 +49,21 @@ const radiusKm = region => /區$|鎮$|鄉$|村$/.test(region.name || '') || ['to
 export function createPlaceResolver(fetcher = fetch) {
   return {
     async resolveDestination(destination, signal) {
-      const results = await nominatim(destination, fetcher, signal)
+      const results = await nominatim(destination, fetcher, signal, true)
       const regionCandidates = results.filter(value => isRegion(value) && regionMatches(value, destination))
       const exactRegion = regionCandidates.find(value => value.type === 'administrative') || regionCandidates.find(value => value.type === 'city') || regionCandidates[0]
-      if (exactRegion) return exactRegion
+      if (exactRegion && ['administrative','city'].includes(exactRegion.type)) return exactRegion
       // Generic administrative suffixes avoid mistaking a station or a same-name
       // village in another country for a Chinese-language city/district.
       if (/^[\p{Script=Han}]{2,8}$/u.test(destination) && !/[市區县縣乡鄉鎮町村]$/.test(destination)) {
-        for (const suffix of ['市', '區', '縣']) {
+        for (const suffix of ['市', '區', '縣', '都', '府']) {
           const expanded = `${destination}${suffix}`
-          const scoped = await nominatim(expanded, fetcher, signal)
+          const scoped = await nominatim(expanded, fetcher, signal, true)
           const region = scoped.find(value => isRegion(value) && recordMatches(value, expanded))
           if (region) return region
         }
       }
+      if (exactRegion) return exactRegion
       const exact = results.filter(value => recordMatches(value, destination) && !isTransportRecord(value))
       if (exact.length === 1) return exact[0]
       throw new ApiError('DESTINATION_AMBIGUOUS', '找不到明確的目的地，請輸入城市或地區名稱。', 422)

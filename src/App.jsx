@@ -8,7 +8,7 @@ import { EditTripPage, ItineraryPage, MapPage } from './pages/TripPages'
 import { BusRoutePage, StopPage, TrafficPage, TrafficSearchPage } from './pages/TransitPages'
 
 const pageTitles = {
-  '/': '首頁', '/ai': 'AI 旅遊', '/ai/new': '建立旅程', '/ai/loading': 'AI 規劃中',
+  '/': '首頁', '/ai': '智慧旅遊', '/ai/new': '建立旅程', '/ai/loading': '規劃行程中',
   '/ai/setup-complete': '旅行設定完成', '/traffic': '交通', '/traffic/search': '交通搜尋',
   '/wander': '亂晃', '/wander/result': '亂晃結果', '/me': '我的', '/settings': '設定', '/login': '登入／註冊',
 }

@@ -1,10 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AppPage, BackButton, BottomSheet, EmptyState, FavoriteButton, Icon, PageHeader, PrimaryButton, SearchInput, SecondaryButton, SectionHeader } from '../components/Ui'
 import { setupSteps } from '../data/mockData'
-import { aiPlanner, plannerSteps } from '../services/aiPlanner'
-import { localCapability } from '../services/ai/localModel.js'
+import { smartPlanner, plannerSteps } from '../services/planner/smartPlanner'
 import { friendlyPlanningError } from '../services/ai/errors.js'
 import { answerText, isPresetProfile, profileSummary, travelerCount, travelStyle } from '../services/profile'
 import { addDays, inclusiveDays, tripFormError } from '../services/tripDates'
@@ -57,7 +56,7 @@ export function HomePage() {
     <SectionHeader title="常用站牌" action="編輯" onAction={() => navigate('/me?section=favorites')} />
     {favoriteStops.length?<div className="favorite-stop-grid">{favoriteStops.slice(0,3).map(({id,stop})=><button type="button" key={id} onClick={()=>navigate(`/traffic/stops/${id}`)}><Icon name="star"/><span><strong>{stop.name}</strong><small>已收藏站牌</small></span><i>›</i></button>)}</div>:<p className="home-empty-favorites">還沒有常用站牌。到站牌頁點收藏，就能在這裡快速開啟。</p>}
     <SectionHeader title="更多功能" />
-    <div className="feature-grid"><motion.button type="button" className="feature-card ai-card" onClick={()=>navigate('/ai')} whileTap={{scale:.98}}><span className="feature-eyebrow">AI PLANNER <Icon name="ai" size={18}/></span><strong>AI 旅遊</strong><small>用 AI 規劃<br/>你的專屬行程</small><i aria-hidden="true">↗</i></motion.button><motion.button type="button" className="feature-card wander-card" onClick={()=>navigate('/wander')} whileTap={{scale:.98}}><span className="feature-eyebrow">RANDOM <Icon name="wander" size={18}/></span><strong>亂晃</strong><small>今天不知道去哪？<br/>抽一張就走。</small><i aria-hidden="true">↗</i></motion.button></div>
+    <div className="feature-grid"><motion.button type="button" className="feature-card ai-card" onClick={()=>navigate('/ai')} whileTap={{scale:.98}}><span className="feature-eyebrow">SMART PLANNER <Icon name="ai" size={18}/></span><strong>智慧旅遊</strong><small>依照偏好規劃<br/>你的專屬行程</small><i aria-hidden="true">↗</i></motion.button><motion.button type="button" className="feature-card wander-card" onClick={()=>navigate('/wander')} whileTap={{scale:.98}}><span className="feature-eyebrow">RANDOM <Icon name="wander" size={18}/></span><strong>亂晃</strong><small>今天不知道去哪？<br/>抽一張就走。</small><i aria-hidden="true">↗</i></motion.button></div>
   </AppPage>
 }
 
@@ -67,8 +66,8 @@ export function AiHomePage({ notify }) {
   const activeProfile = state.profiles.find((item) => item.id === state.activeProfileId)
   const choose=(profile)=>{dispatch({type:'PROFILE_SELECT',id:profile.id});navigate('/ai/new')}
   return <AppPage active="ai" nav className="ai-home-page">
-    <div className="ai-home-top"><span className="brand-wordmark">Transit<span>X</span><small>AI TRAVEL</small></span><button type="button" className="avatar-button" onClick={()=>navigate('/me')} aria-label="開啟我的"><Icon name="profile"/></button></div>
-    <section className="ai-home-hero"><div><span className="editorial-kicker">PLAN YOUR NEXT JOURNEY / 01</span><h1>用 AI，<br/><span>規劃屬於你的旅程</span></h1><p>建立你的旅行設定，讓每一次出發都更簡單。</p></div></section>
+    <div className="ai-home-top"><span className="brand-wordmark">Transit<span>X</span><small>SMART TRAVEL</small></span><button type="button" className="avatar-button" onClick={()=>navigate('/me')} aria-label="開啟我的"><Icon name="profile"/></button></div>
+    <section className="ai-home-hero"><div><span className="editorial-kicker">PLAN YOUR NEXT JOURNEY / 01</span><h1>用智慧，<br/><span>規劃屬於你的旅程</span></h1><p>建立你的旅行設定，讓每一次出發都更簡單。</p></div></section>
     <motion.button type="button" className="new-trip-cta" onClick={()=>navigate('/ai/new')} whileTap={{scale:.985}}><span className="cta-icon"><Icon name="ai"/></span><span><strong>開始規劃新旅程</strong><small>目前使用：{activeProfile?.name || '尚未選擇設定'}{isPresetProfile(activeProfile) ? '（預設）' : ''}・可點下方卡片切換</small></span><i><Icon name="arrow"/></i></motion.button>
     <SectionHeader title="旅行設定" action="管理" onAction={()=>setManaged(activeProfile)}/>
     <div className="profile-grid">{visibleProfiles.map((profile,index)=><TravelProfileCard key={profile.id} profile={profile} tone={index%4+1} active={state.activeProfileId===profile.id} onUse={()=>choose(profile)} onManage={()=>setManaged(profile)}/>)}</div>
@@ -78,7 +77,7 @@ export function AiHomePage({ notify }) {
 }
 
 const setupQuestions=[['通常，','誰和你一起出發？'],['旅行時，','你最喜歡什麼？'],['你想走多遠','出舒適圈？'],['你偏好','怎麼移動？'],['一天可以','走多少路？'],['這次旅行的','預算大約是？'],['你喜歡什麼樣的','行程節奏？'],['還有什麼','想告訴我嗎？']]
-const setupHints=['約 2 分鐘完成，之後都可以修改。選擇最符合這組旅行設定的同行對象。','可以多選，選出讓你覺得旅行更快樂的事。','這題決定景點類型；行程快慢會在第 7 題設定。','選擇你最常使用或最喜歡的交通方式（可複選）。','選擇一天能接受的步行距離。','以新台幣計價，每人每天活動與餐飲預算，不含住宿；海外行程依模型估算，請自行確認價格。','只選每天的出發與休息節奏，不用重選景點類型。','有飲食、無障礙或時間限制再填；沒有也可以直接完成。']
+const setupHints=['約 2 分鐘完成，之後都可以修改。選擇最符合這組旅行設定的同行對象。','可以多選，選出讓你覺得旅行更快樂的事。','這題決定景點類型；行程快慢會在第 7 題設定。','選擇你最常使用或最喜歡的交通方式（可複選）。','選擇一天能接受的步行距離。','以新台幣計價，每人每天活動與餐飲預算，不含住宿；海外預算請自行換算當地幣別。','只選每天的出發與休息節奏，不用重選景點類型。','有飲食、無障礙或時間限制再填；沒有也可以直接完成。']
 const setupCardCopy=[
   [
     ['自己','一個人也可以很精彩',['自由','隨性','探索']],['朋友','和好朋友一起出發！',['熱鬧','美食','拍照']],['情侶','和喜歡的人看更多風景',['約會','浪漫','放鬆']],['家人','和家人一起創造回憶',['輕鬆','安全','多元']],
@@ -147,7 +146,7 @@ export function TripFormPage() {
   const solo=answerText(activeProfile?.answers?.companions)==='自己'
   const people=solo?1:(form.travelerCount??travelerCount(activeProfile))
   const valid=!tripFormError(form)&&Boolean(activeProfile)
-  return <AppPage className="trip-form-page"><header className="trip-form-top"><BackButton fallback="/ai"/><button type="button" className="text-button" onClick={()=>navigate('/ai')}>稍後建立</button></header><section className="trip-form-hero"><div><span className="editorial-kicker">NEW JOURNEY / 01</span><h2>想去哪裡<br/><em>開始這趟旅行？</em></h2><p>告訴我們你想去的目的地與時間，<br/>依照你的旅行設定生成可編輯的行程。</p></div></section>
+  return <AppPage className="trip-form-page"><header className="trip-form-top"><BackButton fallback="/ai"/><button type="button" className="text-button" onClick={()=>navigate('/ai')}>稍後建立</button></header><section className="trip-form-hero"><div><span className="editorial-kicker">NEW JOURNEY / 01</span><h2>想去哪裡<br/><em>開始這趟旅行？</em></h2><p>告訴我們你想去的目的地與時間，<br/>依照你的旅行設定安排可編輯的行程。</p></div></section>
     <div className="destination-search"><label className="destination-input"><Icon name="pin"/><input aria-label="目的地" value={form.destination} onFocus={()=>setDestinationFocused(true)} onBlur={()=>window.setTimeout(()=>setDestinationFocused(false),120)} onChange={event=>update({destination:event.target.value})} placeholder="輸入城市名稱，例如東京"/><button type="button" aria-label="搜尋目的地" disabled={!form.destination.trim()} onClick={()=>{const match=citySuggestions[0];if(match)update({destination:match});setDestinationFocused(false)}}><Icon name="search"/></button></label><AnimatePresence>{destinationFocused&&form.destination&&<motion.div className="suggestion-menu" initial={{opacity:0,y:-5}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-5}}>{citySuggestions.length?citySuggestions.map(city=><button type="button" key={city} onClick={()=>{update({destination:city});setDestinationFocused(false)}}><Icon name="pin" size={17}/>{city}</button>):<p>按搜尋即可使用「{form.destination}」</p>}</motion.div>}</AnimatePresence></div>
     <div className="form-label-row"><h3><Icon name="calendar"/>什麼時候出發？</h3><label className="check-label"><input type="checkbox" checked={form.dateUnknown} onChange={event=>update(event.target.checked?{dateUnknown:true,days:Math.max(1,form.days)}:{dateUnknown:false,endDate:addDays(form.startDate,Math.max(1,form.days)-1)})}/><span>還不確定日期</span></label></div>
     <div className="date-card-grid"><label className={form.dateUnknown?'disabled':''}><Icon name="calendar"/><span>出發日期<input type="date" aria-label="出發日期" disabled={form.dateUnknown} value={form.startDate} onChange={event=>setDates('startDate',event.target.value)}/></span></label><label className={form.dateUnknown?'disabled':''}><Icon name="calendar"/><span>回程日期<input type="date" aria-label="回程日期" disabled={form.dateUnknown} value={form.endDate} onChange={event=>setDates('endDate',event.target.value)}/></span></label></div>
@@ -157,44 +156,26 @@ export function TripFormPage() {
     <div className="form-label-row"><h3><Icon name="map"/>有特定地點想去嗎？</h3><small>選填</small></div><form className="specified-place-form" onSubmit={event=>{event.preventDefault();addPlace()}}><Icon name="pin"/><input aria-label="指定地點" value={place} onChange={event=>setPlace(event.target.value)} maxLength={100} placeholder="新增指定地點（最多 14 個）"/><button type="submit" disabled={!place.trim()}>新增</button></form><div className="place-chip-list">{form.places.map(item=><motion.button layout type="button" key={item} onClick={()=>update({places:form.places.filter(value=>value!==item)})}>{item}<Icon name="close" size={15}/></motion.button>)}</div>
     <label className="trip-optional-notes"><span>這次旅行還有什麼想法？ <small>選填</small></span><textarea value={form.optionalNotes||''} maxLength={500} onChange={event=>update({optionalNotes:event.target.value})} placeholder="例如：下午才出發、想保留更多自由時間"/></label>
     <SectionHeader title="推薦熱門目的地" action="換一批" onAction={()=>setDestinationOffset(value=>(value+1)%destinations.length)}/><div className="destination-grid">{rotatedDestinations.map(([city,tags,tone])=><DestinationCard key={city} city={city} tags={tags} tone={tone} selected={form.destination===city} favorite={state.favorites.destinations.includes(city)} onSelect={()=>update({destination:city})} onFavorite={()=>dispatch({type:'FAVORITE_TOGGLE',kind:'destinations',id:city})}/>)}</div>
-    <p className="home-empty-favorites">{import.meta.env?.VITE_AI_RUNTIME==='local'?'此裝置的 WebGPU AI 仍是實驗功能，可能無法產生合格行程；首次需下載約 0.9 GB 模型。':'行程由 AI 依照旅行設定規劃，並查核景點資料。'}若驗證失敗，不會儲存不可靠的行程。請勿填寫敏感個資。</p>
+    <p className="home-empty-favorites">TransitX 會使用 Wikipedia GeoData 真實地點資料，依你的設定安排路線。特殊文字需求只會處理可辨識的條件；營業時間與實際交通請出發前確認。請勿填寫敏感個資。</p>
     <PrimaryButton className="trip-form-submit" disabled={!valid} onClick={()=>navigate('/ai/loading',{replace:true})}>開始規劃行程 <Icon name="arrow"/></PrimaryButton>
   </AppPage>
 }
 
 export function LoadingPage() {
-  const navigate=useNavigate(); const state=useAppState(); const {dispatch}=useAppActions(); const [step,setStep]=useState(0); const [progress,setProgress]=useState(null); const [error,setError]=useState(''); const [errorCode,setErrorCode]=useState(''); const [attempt,setAttempt]=useState(0); const recoveryTried=useRef(false)
-  const runtime=import.meta.env?.VITE_AI_RUNTIME==='local'&&localCapability().supported?'此裝置的 WebGPU AI':'伺服器 AI'
-  useEffect(()=>{let cancelled=false;const controller=new AbortController();setError('');setErrorCode('');setStep(0);setProgress(null);const profile=state.profiles.find(item=>item.id===state.activeProfileId);const start=setTimeout(()=>{aiPlanner.generateTrip(state.tripForm,profile,event=>{if(!cancelled){const value=typeof event==='number'?{step:event}:event;setStep(value.step);setProgress(value)}},controller.signal).then(trip=>{if(!cancelled){dispatch({type:'TRIP_SET',trip});navigate(`/trips/${trip.id}`,{replace:true})}}).catch(reason=>{if(!cancelled){setErrorCode(reason?.code||reason?.cause?.code||'');setError(friendlyPlanningError(reason))}})},0);return()=>{cancelled=true;clearTimeout(start);controller.abort()}},[attempt])
-  useEffect(()=>{
-    if(!['AI_NOT_CONFIGURED','FREE_TIER_UNCONFIRMED'].includes(errorCode)||recoveryTried.current)return
-    let active=true,checking=false
-    const check=async()=>{
-      if(checking||document.visibilityState==='hidden')return
-      checking=true
-      try{
-        const response=await fetch('/api/status',{cache:'no-store'})
-        if(!active||!response.ok)return
-        const status=await response.json()
-        if(active&&status.ai==='configured'&&!recoveryTried.current){recoveryTried.current=true;setAttempt(value=>value+1)}
-      }catch{/* The user can still retry manually while the server is offline. */}
-      finally{checking=false}
-    }
-    check()
-    const timer=window.setInterval(check,5000)
-    return()=>{active=false;window.clearInterval(timer)}
-  },[errorCode])
-  const downloadPercent=step===0&&progress?.downloadPercent!=null?progress.downloadPercent:null
+  const navigate=useNavigate(); const state=useAppState(); const {dispatch}=useAppActions(); const [step,setStep]=useState(0); const [progress,setProgress]=useState(null); const [error,setError]=useState(''); const [attempt,setAttempt]=useState(0)
+  const runtime='TransitX Smart Planner'
+  useEffect(()=>{let cancelled=false;const controller=new AbortController();setError('');setStep(0);setProgress(null);const profile=state.profiles.find(item=>item.id===state.activeProfileId);const start=setTimeout(()=>{smartPlanner.generateTrip(state.tripForm,profile,event=>{if(!cancelled){const value=typeof event==='number'?{step:event}:event;setStep(value.step);setProgress(value)}},controller.signal).then(trip=>{if(!cancelled){dispatch({type:'TRIP_SET',trip});navigate(`/trips/${trip.id}`,{replace:true})}}).catch(reason=>{if(!cancelled)setError(friendlyPlanningError(reason))})},0);return()=>{cancelled=true;clearTimeout(start);controller.abort()}},[attempt])
+  const downloadPercent=null
   return <AppPage className="loading-page"><section className="loading-content">
-    <span className="editorial-kicker">TRANSITX / AI PLANNER</span>
-    <h1><em>AI</em> 正在為你<br/>規劃行程中<span>...</span></h1>
+    <span className="editorial-kicker">TRANSITX / SMART PLANNER</span>
+    <h1>正在為你<br/>規劃行程中<span>...</span></h1>
     <p className="loading-lead">依照你的偏好，<br/>現場規劃這一次的旅程。</p>
     <p className="loading-runtime">執行方式：{runtime}</p>
     {!error?<>
       <div className={`loading-progress ${downloadPercent==null?'indeterminate':''}`}><span style={downloadPercent==null?undefined:{width:`${downloadPercent}%`}}/></div>
       {downloadPercent!=null&&<p role="status" className="loading-download">模型下載／載入 {downloadPercent}%</p>}
-      <div className="planner-step-list">{plannerSteps.map((label,index)=><motion.div key={label} className={index<step?'done':index===step?'active':''} animate={{opacity:index<=step?1:.48,y:0}} initial={{opacity:0,y:8}}><i>{String(index+1).padStart(2,'0')}</i><span><strong>{index===step&&progress?.label?progress.label:label}{index===step?' ...':''}</strong><small>{[runtime==='此裝置的 WebGPU AI'?'首次使用需下載模型，之後可使用瀏覽器快取':'正在連接 AI 規劃服務','根據旅行設定制定策略','逐日建立景點、活動、餐飲與休息','景點未驗證時明確標示；不杜撰店家','核對目的地、日期與指定地點'][index]}</small></span><b>{index<step?<Icon name="check" size={18}/>:index===step?<motion.span animate={{opacity:[.3,1,.3]}} transition={{repeat:Infinity,duration:1.2}}>●</motion.span>:null}</b></motion.div>)}</div>
-      <div className="loading-tip"><span><Icon name="ai" size={21}/></span><p><strong>AI 規劃進行中</strong><small>完成後將自動帶你前往行程頁面。</small></p></div>
+      <div className="planner-step-list">{plannerSteps.map((label,index)=><motion.div key={label} className={index<step?'done':index===step?'active':''} animate={{opacity:index<=step?1:.48,y:0}} initial={{opacity:0,y:8}}><i>{String(index+1).padStart(2,'0')}</i><span><strong>{index===step&&progress?.label?progress.label:label}{index===step?' ...':''}</strong><small>{['從真實地點資料取得候選景點','依照旅行設定比較地點','將相近景點安排在同一天','估算停留與用餐時間','查核目的地、日期與指定地點'][index]}</small></span><b>{index<step?<Icon name="check" size={18}/>:index===step?<motion.span animate={{opacity:[.3,1,.3]}} transition={{repeat:Infinity,duration:1.2}}>●</motion.span>:null}</b></motion.div>)}</div>
+      <div className="loading-tip"><span><Icon name="ai" size={21}/></span><p><strong>智慧規劃進行中</strong><small>完成後將自動帶你前往行程頁面。</small></p></div>
       <SecondaryButton onClick={()=>navigate('/ai/new',{replace:true})}>取消並返回修改</SecondaryButton>
     </>:<div className="inline-error"><strong>這次沒有順利完成規劃</strong><p>{error}</p><PrimaryButton onClick={()=>setAttempt(value=>value+1)}>重新規劃</PrimaryButton><SecondaryButton onClick={()=>navigate('/ai/new')}>返回修改</SecondaryButton></div>}
   </section></AppPage>

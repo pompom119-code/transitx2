@@ -4,6 +4,7 @@ import { createBus } from './bus/service.js'
 import { createPlaceResolver, verifyAndResolve } from './ai/places.js'
 import { randomBytes } from 'node:crypto'
 import { createAiRequestGuard } from './ai/requestGuard.js'
+import { createSmartPlannerService } from './planner/service.js'
 
 async function jsonBody(req) {
  if(!req.headers['content-type']?.startsWith('application/json'))throw new ApiError('INPUT','需要 JSON request。',415)
@@ -27,10 +28,12 @@ function aiSession(req,res) {
  return session
 }
 export function createApi(env, dependencies = {}) {
- const planner=dependencies.planner||createPlanner(env)
+ let experimentalPlanner
+ const getExperimentalPlanner=()=>experimentalPlanner??(experimentalPlanner=dependencies.planner||createPlanner(env))
  const bus=dependencies.bus||createBus(env)
  const placeResolver=dependencies.placeResolver||createPlaceResolver()
  const guardedPlan=dependencies.guardedPlan||createAiRequestGuard()
+ const smartPlanner=dependencies.smartPlanner||createSmartPlannerService(undefined,{debug:env.NODE_ENV==='development'})
  let minute=0,count=0
  return async (req,res,next=()=>{}) => {
   const url=new URL(req.url,'http://localhost')
@@ -46,7 +49,15 @@ export function createApi(env, dependencies = {}) {
    const current=Math.floor(Date.now()/60000)
    if(minute!==current){minute=current;count=0}
    if(++count>120)throw new ApiError('RATE_LIMIT','請求過於頻繁，請稍後再試。',429)
-   if(url.pathname==='/api/status' && req.method==='GET')return send({ai:env.GEMINI_API_KEY&&env.GEMINI_FREE_TIER_CONFIRMED==='true'?'configured':'not-configured',bus:env.TDX_CLIENT_ID&&env.TDX_CLIENT_SECRET&&env.TDX_FREE_PLAN_CONFIRMED==='true'?'configured':'not-configured'})
+   if(url.pathname==='/api/status' && req.method==='GET')return send({planner:'ready',ai:env.GEMINI_API_KEY&&env.GEMINI_FREE_TIER_CONFIRMED==='true'?'configured':'not-configured',bus:env.TDX_CLIENT_ID&&env.TDX_CLIENT_SECRET&&env.TDX_FREE_PLAN_CONFIRMED==='true'?'configured':'not-configured'})
+   if(url.pathname==='/api/planner/plan' && req.method==='POST') {
+    const body=await jsonBody(req)
+    res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store','X-Accel-Buffering':'no'})
+    const emit=data=>{if(!res.destroyed)res.write(JSON.stringify(data)+'\n')}
+    try {const value=await smartPlanner(body,step=>emit({type:'progress',step}),controller.signal);emit({type:'result',value})}
+    catch(error){emit({type:'error',message:error instanceof ApiError?error.message:'智慧規劃暫時無法完成，請稍後再試。',code:error.code||'PLANNER_ERROR'})}
+    return res.end()
+   }
    if(url.pathname==='/api/ai/resolve-draft' && req.method==='POST') {
     const body=await jsonBody(req)
     return send(await verifyAndResolve(body.draft,body.request,placeResolver,controller.signal))
@@ -56,7 +67,7 @@ export function createApi(env, dependencies = {}) {
     const session=aiSession(req,res)
     res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store','X-Accel-Buffering':'no'})
     const emit=data=>{if(!res.destroyed)res.write(JSON.stringify(data)+'\n')}
-    try {const value=await guardedPlan(session,body,()=>planner(body,step=>emit({type:'progress',step}),controller.signal),controller.signal);emit({type:'result',value})}
+    try {const value=await guardedPlan(session,body,()=>getExperimentalPlanner()(body,step=>emit({type:'progress',step}),controller.signal),controller.signal);emit({type:'result',value})}
     catch(error){emit({type:'error',message:error instanceof ApiError?error.message:'AI 暫時無法規劃，請稍後再試。',code:error.code||'AI_ERROR',retryAfterMs:error.retryAfterMs??null})}
     return res.end()
    }

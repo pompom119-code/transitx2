@@ -33,7 +33,7 @@ test('ignores a Qwen thinking block before the final object', () => {
 test('technical JSON and model errors never become user-facing copy', () => {
   const error = new Error('AI 回傳資料未通過驗證：本機 AI 沒有回傳有效 JSON')
   const message = friendlyPlanningError(error)
-  assert.match(message, /AI 暫時無法完成/)
+  assert.match(message, /智慧規劃暫時無法完成/)
   assert.doesNotMatch(message, /JSON|Schema|WebGPU|模型/)
   assert.equal(friendlyPlanningError({ code: 'AI_UNAVAILABLE' }), 'AI 目前比較忙，請稍後再試。')
 })
