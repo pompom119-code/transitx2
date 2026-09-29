@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { createApi } from './server/api.js'
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), { name:'transitx-private-api', configureServer(server) { server.middlewares.use(createApi({...loadEnv(mode,process.cwd(),''),...process.env})) } }],
+  plugins: [react(), { name:'transitx-private-api', configureServer(server) { server.middlewares.use(createApi({...loadEnv(mode,process.cwd(),''),...process.env,NODE_ENV:mode})) } }],
   build: {
     rollupOptions: {
       output: { manualChunks: { motion: ['framer-motion'] } },

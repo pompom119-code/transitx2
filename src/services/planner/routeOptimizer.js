@@ -1,8 +1,7 @@
 import { distanceKm } from './geo.js'
 
 const length = points => points.slice(1).reduce((sum, point, index) => sum + distanceKm(points[index], point), 0)
-export function optimizeRoute(points, start) {
-  if (points.length < 2) return [...points]
+export function nearestNeighbor(points, start) {
   const remaining = [...points], route = []
   let cursor = start || remaining[0]
   while (remaining.length) {
@@ -11,6 +10,11 @@ export function optimizeRoute(points, start) {
     cursor = remaining.splice(best, 1)[0]
     route.push(cursor)
   }
+  return route
+}
+export function optimizeRoute(points, start) {
+  if (points.length < 2) return [...points]
+  const route = nearestNeighbor(points,start)
   // Open-path 2-opt: never invent a road or transit route; optimize straight-line order only.
   let improved = true, passes = 0
   while (improved && passes++ < 8) {
@@ -23,7 +27,7 @@ export function optimizeRoute(points, start) {
   return route
 }
 
-export function clusterByDay(pois, days, center) {
+export function clusterByDay(pois, days, center, { scoreOf = (_poi) => 0, minSeparation = 2.5 } = {}) {
   if (days <= 1) return [pois]
   const seeds = [pois.find(item => item.mustVisit) || pois[0]]
   while (seeds.length < days) {
@@ -31,7 +35,8 @@ export function clusterByDay(pois, days, center) {
     // anchor for each day; farthest-point seeding overweights weak suburbs.
     const available = pois.slice(0,Math.max(80,days*28)).filter(item => !seeds.includes(item))
     if (!available.length) break
-    seeds.push(available.find(item=>Math.min(...seeds.map(seed=>distanceKm(seed,item)))>=2.5) || available[0])
+    const qualityFloor=scoreOf(pois[0])-25
+    seeds.push(available.find(item=>scoreOf(item)>=qualityFloor&&Math.min(...seeds.map(seed=>distanceKm(seed,item)))>=minSeparation) || available[0])
   }
   const groups = seeds.map(seed => [seed])
   for (const poi of pois) {
@@ -41,5 +46,11 @@ export function clusterByDay(pois, days, center) {
     groups[best].push(poi)
   }
   groups.sort((a,b)=>distanceKm(a[0],center)-distanceKm(b[0],center))
+  return groups
+}
+
+export function fallbackClusterByDay(pois,days,center) {
+  const groups=Array.from({length:days},()=>[])
+  ;[...pois].sort((a,b)=>distanceKm(a,center)-distanceKm(b,center)).forEach((poi,index)=>groups[index%days].push(poi))
   return groups
 }

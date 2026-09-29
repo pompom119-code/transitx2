@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { createApi } from './api.js'
 import { loadEnv } from 'vite'
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)))
-const env={...loadEnv('production',root,''),...process.env}
+/** @type {Record<string,string|undefined>} */
+const env={...loadEnv('production',root,''),...process.env,NODE_ENV:'production'}
 const api=createApi(env)
 const dist=resolve(root,'dist')
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.woff2':'font/woff2','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.json':'application/json'}

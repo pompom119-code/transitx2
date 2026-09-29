@@ -8,6 +8,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "node --test",
+    "test:planner": "node --test src/services/planner/planner.test.js server/planner/wikimediaPoiProvider.test.js",
+    "test:planner:live": "node scripts/smart-planner-acceptance.js --summary",
     "test:live": "node scripts/live-check.js",
     "test:bus:live": "node scripts/bus-live-check.js",
     "build": "vite build",

@@ -29,6 +29,8 @@ export function scorePOI(poi, request, context = {}) {
   const previous = context.previous || []
   const sameCategory = previous.filter(item => item.category === poi.category).length
   const score = {
+    baseScore: poi.category === 'attraction' && (Number(poi.popularity)||0) < 20 ? -15
+      : poi.category === 'park' && (Number(poi.popularity)||0) < 12 && !/庭園|植物園|Garden|自然公園|史跡|文化財/i.test(`${poi.name} ${tags.categories||''}`) ? -10 : 5,
     interestScore: Math.min(42, matches.length * 20 + (matches.includes('MATCH_FOOD') && poi.category==='marketplace' ? 14 : 0) + (matches.includes('MATCH_PHOTOGRAPHY') && poi.category==='viewpoint' ? 12 : 0)),
     popularityScore: Math.min(28,(Number(poi.popularity)||0) + (/landmark|museum|park/.test(tags.wikiType||'') ? 8 : classic ? 3 : tags.name ? 2 : 0)),
     explorationScore: /經典/.test(exploration) ? (classic ? 17 : -3) : /在地/.test(exploration) ? (local ? 17 : 0) : /探索/.test(exploration) ? (local ? 12 : classic ? -3 : 5) : /冒險/.test(exploration) ? (outdoor ? 12 : local ? 7 : 0) : 0,

@@ -65,6 +65,12 @@ export function buildDay(route, foodPois, request, dayIndex, scores, seed = 0) {
     spots.splice(insertAt,0,{ id:`spot-${id()}`,type:'food',time:timeText(Math.max(mealMinute,clock)),title:mealTitle,detail:foodSuggestion(request),category:'餐飲',location:'附近・店家自行選擇',reason:foodSuggestion(request),estimatedDuration:60,verificationStatus:null,source:null,latitude:anchor.latitude,longitude:anchor.longitude,restaurantOptions:options,foods:[],foodArea:null,favorite:false,requiredPlace:'',transportMode:'移動方式待確認',transportMinutes:null,transportDetail:'請自行確認移動方式' })
     spots.sort((a,b)=>a.time.localeCompare(b.time))
   }
+  if (route.length < targetCount(request) && route.length) {
+    const lastSpot=spots.at(-1)
+    const lastPoi=route.at(-1)
+    const start=Math.max(clock,Number(lastSpot.time.slice(0,2))*60+Number(lastSpot.time.slice(3))+lastSpot.estimatedDuration)
+    spots.push({id:`spot-${id()}`,type:'break',time:timeText(start),title:'自由探索與休息',detail:'這天保留彈性時間，可在已安排地點周邊散步或休息；不代表新增景點。',category:'休息',location:request.destination,reason:'可查核的合適地點較少，避免硬塞未驗證的景點。',estimatedDuration:/悠閒|輕鬆/.test(request.travelPace)?90:60,verificationStatus:null,source:null,latitude:lastPoi.latitude,longitude:lastPoi.longitude,favorite:false,requiredPlace:'',transportMode:'移動方式待確認',transportMinutes:null,transportDetail:'自由時間請自行安排'})
+  }
   const routeDistanceKm = route.slice(1).reduce((sum,poi,index)=>sum+distanceKm(route[index],poi),0)
   return { spots, routeDistanceKm:Number(routeDistanceKm.toFixed(2)), finishTime:timeText(clock) }
 }

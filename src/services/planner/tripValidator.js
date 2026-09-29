@@ -7,7 +7,7 @@ export function validateSmartTrip(trip, request, sourceIds, center, radiusKm, ge
   for (let dayIndex=0;dayIndex<trip.days.length;dayIndex++) {
     const day = trip.days[dayIndex]
     if (day.date !== (request.startDate ? addDays(request.startDate,dayIndex) : '')) throw new Error('行程日期不一致。')
-    if (day.spots.filter(spot=>spot.type==='poi').length < 2) throw new Error('目前能取得的地點資料不足以安排完整行程。')
+    if (day.spots.filter(spot=>spot.type==='poi').length < 1) throw new Error('目前能取得的地點資料不足以安排完整行程。')
     let previous = ''
     for (const spot of day.spots) {
       if (previous && spot.time < previous) throw new Error('行程時間順序錯誤。')

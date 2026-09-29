@@ -15,15 +15,17 @@ const excludedTitle = /(?:站|駅|機場|空港|學校|学校|小學|小学|中�
 const excludedCategory = /(?:鐵路車站|鉄道駅|小學|小学|中學|中学|高級中學|高等学校|大学|大學|學校|学校|病院|Hospitals|墓葬|公墓|火災|事故|案件|行政區劃|村里|公司|企業|超高層ビル|オフィスビル|Office buildings|Skyscrapers)/iu
 let nextRequestAt=0
 let requestQueue=Promise.resolve()
-async function wikiRequest(url,fetcher,signal) {
+async function wikiRequest(url,fetcher,signal,metrics) {
   const run=async()=>{
     for(let attempt=0;attempt<3;attempt++){
       const delay=Math.max(0,nextRequestAt-Date.now())
       if(delay)await new Promise(resolve=>setTimeout(resolve,delay))
       nextRequestAt=Date.now()+400
       let response
+      const started=performance.now()
       try{response=await fetcher(url,{headers:header,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})}
-      catch(error){if(attempt===2)throw new ApiError(error?.name==='TimeoutError'?'POI_TIMEOUT':'POI_PROVIDER','Wikipedia 地點資料暫時無法取得。',503);continue}
+      catch(error){metrics?.requests.push({status:error?.name||'NETWORK_ERROR',durationMs:Math.round(performance.now()-started)});if(attempt===2)throw new ApiError(error?.name==='TimeoutError'?'POI_TIMEOUT':'POI_PROVIDER','Wikipedia 地點資料暫時無法取得。',503);continue}
+      metrics?.requests.push({status:response.status,durationMs:Math.round(performance.now()-started)})
       if(response.status===429||response.status===503){
         if(attempt===2)throw new ApiError('POI_PROVIDER',`Wikipedia 地點資料暫時無法取得（HTTP ${response.status}）。`,503)
         const retry=Number(response.headers.get('retry-after'))
@@ -72,7 +74,7 @@ function toPoi(item, language, categories = []) {
   return {id:`wikipedia:${language}:${item.pageid}`,name:item.title,category:categoryOf(item,named),latitude:Number(item.lat),longitude:Number(item.lon),source:'Wikipedia / GeoData',tags:{name:item.title,wikipedia:url,wikiType:item.type||'',categories:named.join('｜')},popularity:importance,website:url}
 }
 function radiusFor(record) { return /區$|鎮$|鄉$|町$|村$/.test(record.name||'') || ['town','suburb','village'].includes(record.type) ? 8 : 16 }
-async function categoriesFor(language,items,fetcher,signal) {
+async function categoriesFor(language,items,fetcher,signal,metrics) {
   const result=new Map()
   for(let offset=0;offset<items.length;offset+=30){
     const batch=items.slice(offset,offset+30)
@@ -81,7 +83,7 @@ async function categoriesFor(language,items,fetcher,signal) {
       const url=new URL(`https://${language}.wikipedia.org/w/api.php`)
       url.search=new URLSearchParams({action:'query',prop:'categories',pageids:batch.map(item=>item.pageid).join('|'),cllimit:'500',clshow:'!hidden',format:'json',...continuation}).toString()
       let data
-      try{data=await wikiRequest(url,fetcher,signal)}catch{break}
+      try{data=await wikiRequest(url,fetcher,signal,metrics)}catch{break}
       if(!data?.query?.pages)break
       for(const page of Object.values(data.query.pages))result.set(page.pageid,[...(result.get(page.pageid)||[]),...(page.categories||[]).map(category=>category.title)])
       if(!data.continue?.clcontinue)break
@@ -90,7 +92,7 @@ async function categoriesFor(language,items,fetcher,signal) {
   }
   return result
 }
-async function searchWiki(language,center,radiusKm,bbox,geometry,fetcher,signal) {
+async function searchWiki(language,center,radiusKm,bbox,geometry,fetcher,signal,metrics) {
   // Dense urban Wikipedia coordinates are truncated by the GeoSearch result cap.
   // A small grid queries *near each neighbourhood* rather than taking only the
   // nearest articles to city hall; it is geographic sampling, not a city list.
@@ -103,32 +105,43 @@ async function searchWiki(language,center,radiusKm,bbox,geometry,fetcher,signal)
   for (const [lat,lon] of coords) {
     const url=new URL(`https://${language}.wikipedia.org/w/api.php`)
     url.search=new URLSearchParams({action:'query',list:'geosearch',gscoord:`${lat.toFixed(5)}|${lon.toFixed(5)}`,gsradius:String(Math.round(km*1000)),gslimit:radiusKm<=8?'150':'500',gsprop:'type|country',format:'json'}).toString()
-    const data=await wikiRequest(url,fetcher,signal)
+    const data=await wikiRequest(url,fetcher,signal,metrics)
     if(!Array.isArray(data?.query?.geosearch))throw new ApiError('POI_PROVIDER','Wikipedia 地點資料格式錯誤。',503)
     groups.push(data.query.geosearch)
   }
   const results=[]
   for(let index=0;index<(radiusKm<=8?150:500);index++)for(const group of groups)if(group[index])results.push(group[index])
-  const filtered=[...new Map(results.map(item=>[item.pageid,item])).values()].filter(item=>usable(item,center,radiusKm,bbox,geometry)).slice(0,1800)
-  const categories=await categoriesFor(language,filtered,fetcher,signal)
-  return filtered.filter(item=>{
+  const normalizedAt=performance.now()
+  const normalized=[...new Map(results.map(item=>[item.pageid,item])).values()]
+  metrics.durationsMs.normalization+=performance.now()-normalizedAt
+  const geographyAt=performance.now()
+  const filtered=normalized.filter(item=>usable(item,center,radiusKm,bbox,geometry)).slice(0,1800)
+  metrics.durationsMs.geography+=performance.now()-geographyAt
+  metrics.rawCount+=results.length
+  metrics.normalizedCount+=normalized.length
+  metrics.geographicCount+=filtered.length
+  const categories=await categoriesFor(language,filtered,fetcher,signal,metrics)
+  const categoryAt=performance.now()
+  const categorized=filtered.filter(item=>{
     const meta=(categories.get(item.pageid)||[]).join(' ')
     if(/墓地|埋葬|墓葬|公墓|Cemeteries|Burials/i.test(meta))return false
     if(/タワー|Tower|ビル|Building/i.test(item.title) && !/觀光|観光|名所|ランドマーク|史跡|文化財|古蹟|tourist attraction|landmark/i.test(meta))return false
     return !excludedCategory.test(meta) || /國定古蹟|市定古蹟|文化資產|史跡/.test(meta)
   })
-    .map(item=>toPoi(item,language,categories.get(item.pageid)||[]))
+  metrics.durationsMs.category+=performance.now()-categoryAt
+  metrics.categoryCount+=categorized.length
+  return categorized.map(item=>toPoi(item,language,categories.get(item.pageid)||[]))
 }
-async function cached(key, loader) {
+async function cached(key, loader, forceRefresh=false) {
   const existing=memory.get(key)
-  if(existing&&Date.now()-existing.savedAt<TTL)return {...existing,cache:'memory'}
+  if(!forceRefresh&&existing&&Date.now()-existing.savedAt<TTL)return {...existing,cache:'memory'}
   if(pending.has(key))return pending.get(key)
   const task=(async()=>{
     const path=resolve(CACHE_DIR,createHash('sha256').update(key).digest('hex')+'.json')
     let disk
     try{disk=JSON.parse(await readFile(path,'utf8'))}catch{/* no prior cache */}
-    if(disk&&Date.now()-disk.savedAt<TTL){memory.set(key,disk);return {...disk,cache:'disk'}}
-    try{const value={savedAt:Date.now(),pois:await loader()};memory.set(key,value);await mkdir(CACHE_DIR,{recursive:true}).then(()=>writeFile(path,JSON.stringify(value),'utf8')).catch(()=>{});return {...value,cache:'network'}}
+    if(!forceRefresh&&disk&&Date.now()-disk.savedAt<TTL){memory.set(key,disk);return {...disk,cache:'disk'}}
+    try{const loaded=await loader();const value={savedAt:Date.now(),pois:loaded.pois,metrics:loaded.metrics};memory.set(key,value);await mkdir(CACHE_DIR,{recursive:true}).then(()=>writeFile(path,JSON.stringify(value),'utf8')).catch(()=>{});return {...value,cache:'network'}}
     catch(error){if(disk?.pois?.length){memory.set(key,disk);return {...disk,cache:'stale-disk'}}throw error}
   })().finally(()=>pending.delete(key))
   pending.set(key,task)
@@ -136,8 +149,10 @@ async function cached(key, loader) {
 }
 export function createWikimediaPoiProvider(fetcher=fetch,resolver=createPlaceResolver(fetcher)) {
   return {
-    async searchPOIs(destination,categories=[],signal) {
+    async searchPOIs(destination,categories=[],signal,options={}) {
+      const resolutionStart=performance.now()
       const region=typeof destination==='string'?await resolveCachedRegion(destination,resolver,signal):destination
+      const resolutionMs=Math.round(performance.now()-resolutionStart)
       const center={latitude:Number(region.lat),longitude:Number(region.lon)}
       if(!Number.isFinite(center.latitude)||!Number.isFinite(center.longitude))throw new ApiError('DESTINATION_AMBIGUOUS','找不到這個目的地的座標。',422)
       const radiusKm=radiusFor(region)
@@ -145,16 +160,19 @@ export function createWikimediaPoiProvider(fetcher=fetch,resolver=createPlaceRes
       const bbox=Array.isArray(region.boundingbox)&&region.boundingbox.length===4?region.boundingbox.map(Number):null
       const key=`${normalizedName(region.display_name)}:${radiusKm}:${language}:v8`
       const result=await cached(key,async()=>{
-        const primary=await searchWiki(language,center,radiusKm,bbox,region.geojson,fetcher,signal)
+        const metrics={requests:[],rawCount:0,normalizedCount:0,geographicCount:0,categoryCount:0,durationsMs:{normalization:0,geography:0,category:0}}
+        const primary=await searchWiki(language,center,radiusKm,bbox,region.geojson,fetcher,signal,metrics)
         let secondary=[]
-        if(primary.length<100 || radiusKm<=8)try{secondary=await searchWiki('en',center,radiusKm,bbox,region.geojson,fetcher,signal)}catch{/* Primary verified records remain usable. */}
+        if(primary.length<100 || radiusKm<=8)try{secondary=await searchWiki('en',center,radiusKm,bbox,region.geojson,fetcher,signal,metrics)}catch{/* Primary verified records remain usable. */}
         const englishAlias=String(region.namedetails?.['name:en']||'').replace(/\b(?:District|City|County|Township|Ward|Prefecture)\b.*/i,'').trim().toLowerCase()
-        return [...primary,...secondary.filter(poi=>englishAlias && poi.name.toLowerCase().includes(englishAlias) && !primary.some(item=>item.name===poi.name||distanceKm(item,poi)<.08&&item.category===poi.category))]
-      })
+        return {pois:[...primary,...secondary.filter(poi=>englishAlias && poi.name.toLowerCase().includes(englishAlias) && !primary.some(item=>item.name===poi.name||distanceKm(item,poi)<.08&&item.category===poi.category))],metrics}
+      },options.forceRefresh===true)
+      const suitabilityAt=performance.now()
       const suitable=result.pois.filter(poi=>!/卸売|卸賣|批發|Wholesale|Distribution Center|野球場|球場|スタジアム|競技場|[一-龥]港$|Police Department/i.test(poi.name) && !excludedTitle.test(poi.name) && (!excludedCategory.test(poi.tags.categories||'') || /國定古蹟|市定古蹟|文化資產|史跡/.test(poi.tags.categories||'')))
         .map(poi=>({...poi,category:categoryOf({title:poi.name,type:poi.tags.wikiType},(poi.tags.categories||'').split('｜'))}))
       const pois=categories.length?suitable.filter(poi=>categories.includes(poi.category)):suitable
-      return {region,center,radiusKm,pois,cache:result.cache,fetchedAt:new Date(result.savedAt).toISOString(),provider:'Wikipedia / GeoData'}
+      const raw=result.metrics?.rawCount??null,normalized=result.metrics?.normalizedCount??null,geographic=result.metrics?.geographicCount??null,categorized=result.metrics?.categoryCount??null
+      return {region,center,radiusKm,pois,cache:result.cache,fetchedAt:new Date(result.savedAt).toISOString(),provider:'Wikipedia / GeoData',diagnostics:{resolutionMs,rawCount:raw,normalizedCount:normalized,geographicCount:geographic,categoryCount:categorized,providerCount:result.pois.length,usableCount:pois.length,rejected:{duplicate:raw===null?null:raw-normalized,outsideRegion:normalized===null?null:normalized-geographic,category:geographic===null?null:geographic-categorized,aliasDedup:categorized===null?null:categorized-result.pois.length,finalSuitability:result.pois.length-pois.length},durationsMs:{...result.metrics?.durationsMs,finalSuitability:Number((performance.now()-suitabilityAt).toFixed(2))},http:result.metrics?.requests??[],cache:result.cache}}
     },
     async searchFoodAreas(destination,signal){const result=await this.searchPOIs(destination,[],signal);return result.pois.filter(poi=>poi.category==='marketplace')},
     async resolvePlace(name,destination,region,signal){

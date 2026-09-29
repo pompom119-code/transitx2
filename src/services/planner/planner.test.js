@@ -65,5 +65,23 @@ test('replacement picks unused nearby source-backed POI',()=>{
   assert.ok(replacement.spots.some(spot=>spot.id===first.id&&spot.poiId!==first.poiId&&pois.some(p=>p.id===spot.poiId)))
 })
 test('insufficient real POIs fail instead of falling back to a template',()=>{
-  assert.throws(()=>buildSmartTrip({request:request(2),form:form(2),profile:profile('朋友',['美食']),dataset:{...dataset,pois:pois.slice(0,2)},seed:1}),/地點資料不足/)
+  assert.throws(()=>buildSmartTrip({request:request(2),form:form(2),profile:profile('朋友',['美食']),dataset:{...dataset,pois:pois.slice(0,1)},seed:1}),/地點資料不足/)
+})
+test('sparse multi-day destinations keep unique verified POIs and add free time',()=>{
+  const sparse={...dataset,pois:[pois[0],pois[1],pois[2]]}
+  const events=[]
+  const trip=buildSmartTrip({request:request(3),form:form(3),profile:profile('朋友',['拍照']),dataset:sparse,seed:7,onDiagnostic:event=>events.push(event)})
+  const selected=trip.days.map(day=>day.spots.filter(spot=>spot.type==='poi'))
+  assert.deepEqual(selected.map(day=>day.length),[1,1,1])
+  assert.equal(new Set(selected.flat().map(spot=>spot.poiId)).size,3)
+  assert.ok(trip.days.every(day=>day.spots.some(spot=>spot.type==='food')&&day.spots.some(spot=>spot.type==='break')))
+  assert.ok(events.some(event=>event.stage==='final-validation'))
+})
+test('must-visit is reserved for its day and never repeated across days',()=>{
+  const required={...pois[8],mustVisit:true,mustVisitName:'Test Place 8'}
+  const sourced={...dataset,pois:pois.map(poi=>poi.id===required.id?required:poi)}
+  const trip=buildSmartTrip({request:{...request(4),mustVisitPlaces:['Test Place 8']},form:{...form(4),places:['Test Place 8']},profile:profile('朋友',['美食','拍照']),dataset:sourced,seed:123})
+  const selected=trip.days.flatMap(day=>day.spots.filter(spot=>spot.type==='poi'))
+  assert.equal(selected.filter(spot=>spot.requiredPlace==='Test Place 8').length,1)
+  assert.equal(new Set(selected.map(spot=>spot.poiId)).size,selected.length)
 })

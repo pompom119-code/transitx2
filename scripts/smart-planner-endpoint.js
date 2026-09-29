@@ -1,4 +1,6 @@
-const form={destination:'淡水',startDate:'2026-10-10',endDate:'2026-10-10',days:1,dateUnknown:false,travelerCount:3,places:['紅毛城'],optionalNotes:''}
+import { addDays } from '../src/services/tripDates.js'
+const days=Math.max(1,Number(process.argv[2])||1)
+const form={destination:'淡水',startDate:'2026-10-10',endDate:addDays('2026-10-10',days-1),days,dateUnknown:false,travelerCount:3,places:['紅毛城'],optionalNotes:''}
 const profile={id:'endpoint-test',answers:{companions:'朋友',interests:['美食','拍照'],exploration:'探索派',transport:['公車','步行'],walking:'適中走',budget:'標準享受',pace:'悠閒放鬆',notes:''}}
 const start=performance.now()
 const response=await fetch('http://127.0.0.1:5173/api/planner/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'generate',form,profile}),signal:AbortSignal.timeout(90000)})
