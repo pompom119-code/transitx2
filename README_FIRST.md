@@ -27,7 +27,7 @@ npm start
 
 瀏覽器本機 Qwen3-1.7B / Qwen3.5-2B / Qwen3-4B 經真實 WebGPU 測試，仍未達完整行程可靠性門檻；Qwen3.5-4B 在此裝置未能及時進入推論。故**本機模型不再是預設正式路徑**，只有明確設定 `VITE_AI_RUNTIME=local` 才會啟用實驗模式。它可能下載大量權重、等待數分鐘且最後仍失敗，不應當成正式服務。原始輸出、問題分類與實測見 `LOCAL_AI_FAILURE_ANALYSIS.md`、`LOCAL_AI_BENCHMARK.md`、`AI_ACCEPTANCE_TEST.md`。不會儲存假結果或套固定城市模板。
 
-正式路徑現在是同源 Gemini server provider，預設 `gemini-3.7-flash`，並依官方模型清單與 Free Tier／Structured Output 文件限定 5 個 fallback。每個模型最多 3 次 503 退避嘗試，全部忙碌時安全報錯，不用假行程。本機私密 `.env` 已設定使用者提供並確認為 Free Tier 的金鑰，但 2026-09-28 的真實最小生成仍主要收到 Google HTTP 503；一次最小 fallback 測試曾成功，淡水端到端行程仍失敗，**尚未通過真實行程品質驗收**，不能宣稱規劃已穩定成功。詳見 `AI_GEMINI_LIVE_TEST.md`。金鑰曾被貼進聊天，請在 Google AI Studio 旋轉；不要把 key 放進前端、Git 或文件。使用者 session 有冷卻與每日次數、相同請求有短期快取；這些記憶體限制在多實例部署時不是全站硬配額。官方實際配額以帳號介面為準。設定與限制見 `AI_CLOUD_DEPLOYMENT.md`。
+正式路徑現在是同源 Gemini server provider，預設 `gemini-3.7-flash`，並依官方模型清單與 Free Tier／Structured Output 文件限定 5 個 fallback。每個模型最多 3 次 503 退避嘗試，全部忙碌時安全報錯，不用假行程。2026-09-29 從正式專案重啟本機 dev server 後，`/api/status` 回報 AI 已設定；透過 `/api/ai/plan` 的真實淡水／朋友／美食＋拍照／1 天請求成功完成策略、逐日安排、景點與餐飲查核，回傳 `Gemini / gemini-3.5-flash-lite` 行程，約 59 秒。這是**一次真實端到端 server 測試成功**，尚未證明多城市或長期穩定性。前一天 Google HTTP 503 的失敗紀錄及本次通過紀錄見 `AI_GEMINI_LIVE_TEST.md`。金鑰曾被貼進聊天，請在 Google AI Studio 旋轉；不要把 key 放進前端、Git 或文件。使用者 session 有冷卻與每日次數、相同請求有短期快取；這些記憶體限制在多實例部署時不是全站硬配額。官方實際配額以帳號介面為準。設定與限制見 `AI_CLOUD_DEPLOYMENT.md`。
 
 地點查核用 OpenStreetMap Nominatim 公開服務，已加快取與節流；這僅適用低流量原型。AI 自提但查不到或跨目的地的 POI／餐飲區域會觸發重規劃，仍不可靠就不儲存；使用者自己指定但查不到的必訪點可保留並標示未驗證。餐飲預設只推薦「區域 + 吃什麼」，不指定店家；店家搜尋尚無 Places Provider，因此 CTA 明確停用。交通段只顯示待確認，不造假路線、分鐘或即時到站。
 

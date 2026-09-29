@@ -1,5 +1,15 @@
 # Gemini 真實連線紀錄（2026-09-28）
 
+## 2026-09-29 重新檢查
+
+檢查時 `127.0.0.1:5173` 沒有 listener，瀏覽器保留的是先前無法連線／失敗的頁面狀態。從 `C:\Users\user\OneDrive\Desktop\TransitX_2.0_Reviewed` 重新啟動 Vite 後，`GET /api/status` 回 HTTP 200、AI `configured`；伺服器端 provider `ready() = true`，官方 `models.list` 成功列出 6 個合格候選。金鑰僅確認為 `SET`，本文未記錄其內容。
+
+直接對這個運行中的 TransitX server 送出 `POST /api/ai/plan`：淡水、朋友 2 人、美食＋拍照、探索派、輕鬆、1 天。Endpoint HTTP 200，stream 先後到達策略、逐日安排、景點與餐飲查核、完整行程檢查，最後回傳 `destination=淡水`、`days=1`、`source=Gemini / gemini-3.5-flash-lite`，耗時 59,452 ms。這表示該次請求已通過原有結構、語意、地理與餐飲驗證，**不是固定模板**。瀏覽器自動化對本機分頁被安全政策拒絕，因此這次只完成真實 server endpoint 驗證，沒有聲稱已親自在瀏覽器操作完整 UI。
+
+同日官方最小 Structured JSON 檢查：3.7 Flash HTTP 200／8,997 ms（診斷腳本的 128 token 上限使其 `MAX_TOKENS`）；3.5 Flash HTTP 200／37,211 ms（同樣 `MAX_TOKENS`）；3.5 Flash-Lite HTTP 200／1,142 ms、有效 JSON；3.1 Flash-Lite HTTP 200／2,998 ms、有效 JSON；3.8 Flash HTTP 503／3,458 ms；3.6 Flash HTTP 503／916 ms。這些狀態會變動，不可把單次成功當成長期可靠性證明。
+
+以下保留 2026-09-28 的歷史測試紀錄，以便分辨舊的 503 與本次成功結果。
+
 測試使用本機 `.env` 的私密金鑰；金鑰未寫入本文件、前端 bundle 或 Git。使用者已確認該 Google AI Studio 專案是 Free Tier。
 
 | 檢查 | 真實結果 |
