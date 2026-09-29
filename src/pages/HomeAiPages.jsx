@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AppPage, BackButton, BottomSheet, EmptyState, FavoriteButton, Icon, PageHeader, PrimaryButton, SearchInput, SecondaryButton, SectionHeader } from '../components/Ui'
 import { setupSteps } from '../data/mockData'
@@ -163,9 +163,27 @@ export function TripFormPage() {
 }
 
 export function LoadingPage() {
-  const navigate=useNavigate(); const state=useAppState(); const {dispatch}=useAppActions(); const [step,setStep]=useState(0); const [progress,setProgress]=useState(null); const [error,setError]=useState(''); const [attempt,setAttempt]=useState(0)
+  const navigate=useNavigate(); const state=useAppState(); const {dispatch}=useAppActions(); const [step,setStep]=useState(0); const [progress,setProgress]=useState(null); const [error,setError]=useState(''); const [errorCode,setErrorCode]=useState(''); const [attempt,setAttempt]=useState(0); const recoveryTried=useRef(false)
   const runtime=import.meta.env?.VITE_AI_RUNTIME==='local'&&localCapability().supported?'此裝置的 WebGPU AI':'伺服器 AI'
-  useEffect(()=>{let cancelled=false;const controller=new AbortController();setError('');setStep(0);setProgress(null);const profile=state.profiles.find(item=>item.id===state.activeProfileId);const start=setTimeout(()=>{aiPlanner.generateTrip(state.tripForm,profile,event=>{if(!cancelled){const value=typeof event==='number'?{step:event}:event;setStep(value.step);setProgress(value)}},controller.signal).then(trip=>{if(!cancelled){dispatch({type:'TRIP_SET',trip});navigate(`/trips/${trip.id}`,{replace:true})}}).catch(reason=>{if(!cancelled)setError(friendlyPlanningError(reason))})},0);return()=>{cancelled=true;clearTimeout(start);controller.abort()}},[attempt])
+  useEffect(()=>{let cancelled=false;const controller=new AbortController();setError('');setErrorCode('');setStep(0);setProgress(null);const profile=state.profiles.find(item=>item.id===state.activeProfileId);const start=setTimeout(()=>{aiPlanner.generateTrip(state.tripForm,profile,event=>{if(!cancelled){const value=typeof event==='number'?{step:event}:event;setStep(value.step);setProgress(value)}},controller.signal).then(trip=>{if(!cancelled){dispatch({type:'TRIP_SET',trip});navigate(`/trips/${trip.id}`,{replace:true})}}).catch(reason=>{if(!cancelled){setErrorCode(reason?.code||reason?.cause?.code||'');setError(friendlyPlanningError(reason))}})},0);return()=>{cancelled=true;clearTimeout(start);controller.abort()}},[attempt])
+  useEffect(()=>{
+    if(!['AI_NOT_CONFIGURED','FREE_TIER_UNCONFIRMED'].includes(errorCode)||recoveryTried.current)return
+    let active=true,checking=false
+    const check=async()=>{
+      if(checking||document.visibilityState==='hidden')return
+      checking=true
+      try{
+        const response=await fetch('/api/status',{cache:'no-store'})
+        if(!active||!response.ok)return
+        const status=await response.json()
+        if(active&&status.ai==='configured'&&!recoveryTried.current){recoveryTried.current=true;setAttempt(value=>value+1)}
+      }catch{/* The user can still retry manually while the server is offline. */}
+      finally{checking=false}
+    }
+    check()
+    const timer=window.setInterval(check,5000)
+    return()=>{active=false;window.clearInterval(timer)}
+  },[errorCode])
   const downloadPercent=step===0&&progress?.downloadPercent!=null?progress.downloadPercent:null
   return <AppPage className="loading-page"><section className="loading-content">
     <span className="editorial-kicker">TRANSITX / AI PLANNER</span>
