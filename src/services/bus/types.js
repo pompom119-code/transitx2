@@ -3,6 +3,8 @@ export const cities = {
  Keelung:'基隆市',Hsinchu:'新竹市',HsinchuCounty:'新竹縣',MiaoliCounty:'苗栗縣',ChanghuaCounty:'彰化縣',
  NantouCounty:'南投縣',YunlinCounty:'雲林縣',Chiayi:'嘉義市',ChiayiCounty:'嘉義縣',PingtungCounty:'屏東縣',
  YilanCounty:'宜蘭縣',HualienCounty:'花蓮縣',TaitungCounty:'臺東縣',PenghuCounty:'澎湖縣',KinmenCounty:'金門縣',LienchiangCounty:'連江縣',
+ // Highway Bureau intercity routes (mostly 4-digit, e.g. 6912) are not part of any county's City data.
+ InterCity:'公路客運',
 }
 export const normalizeQuery = text => String(text || '').normalize('NFKC').trim().toLowerCase().replace(/臺/g,'台')
 export function rank(name, query) {

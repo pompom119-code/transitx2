@@ -41,6 +41,28 @@ test('bus search 307/666/795/Shiding/Taipei ranks exact results and reuses offic
  }
  assert.equal(rank('臺北車站','台北車站'),0);assert.equal(rank('795','666'),99)
 })
+test('county search also finds Highway Bureau intercity routes such as 6912',async()=>{
+ const paths=[]
+ const bus=createBus({}, {query:async path=>{
+  paths.push(path)
+  if(path==='Route/InterCity')return [{...tdxRoute('6912'),RouteUID:'THB6912'}]
+  return []
+ }})
+ const result=await bus.search('6912','ChanghuaCounty')
+ assert.deepEqual(result.routes.map(x=>[x.id,x.name]),[['InterCity~THB6912','6912']])
+ assert.deepEqual(paths.sort(),['Route/City/ChanghuaCounty','Route/InterCity','Stop/City/ChanghuaCounty'],'intercity stop catalog is not loaded for a county search')
+ paths.length=0
+ await bus.search('員林','InterCity')
+ assert.deepEqual(paths,['Stop/InterCity'],'intercity routes come from the cached catalog')
+})
+test('intercity route stops, ETA and stop routes use the InterCity endpoints',async()=>{
+ const paths=[]
+ const bus=createBus({}, {query:async path=>{paths.push(path);return []}})
+ await bus.getRouteStops('InterCity~THB6912',0)
+ await bus.getRouteArrivals('InterCity~THB6912')
+ await bus.getStopRoutes('InterCity~THB1')
+ assert.deepEqual(paths,['StopOfRoute/InterCity','EstimatedTimeOfArrival/InterCity','StopOfRoute/InterCity'])
+})
 test('bus empty result and invalid city/id have no fixture fallback',async()=>{
  const bus=createBus({}, {query:async()=>[]})
  assert.deepEqual((await bus.search('不存在')).routes,[])
