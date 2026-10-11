@@ -35,6 +35,10 @@ npm start
 
 交通模組仍只做台灣公車。TDX 官方路線、站牌、方向、站序與 ETA 由 Node server 查詢；重新整理會請求新的 ETA。可用縣市與速率限制請見 `REAL_DATA_INTEGRATION.md`。TDX 憑證存於本機 `.env`，不得公開；`.env.example` 只列變數名稱。若 API 失敗會顯示錯誤，不會將假 ETA 當真實資料。
 
+TDX 金鑰設定：`.env` 需填 `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET`（TDX 會員中心「API 金鑰內容」，請用「複製」按鈕取值），並設 `TDX_FREE_PLAN_CONFIRMED=true`。新建立的金鑰須在 TDX 填完「資料加值應用說明」並按「儲存」後才會生效；未儲存或金鑰錯誤時，畫面會顯示「TDX 金鑰無效」。
+
+為配合免費方案每分鐘 5 次的限制，伺服器預設每次 TDX 請求間隔 12.2 秒；第一次搜尋需下載台北、新北路線與站牌目錄，可能要等一到兩分鐘，之後由快取回應。若訂閱方案允許更高頻率，可設定 `TDX_MIN_INTERVAL_MS`（毫秒）縮短間隔。
+
 旅行設定、行程、收藏與偏好保存在此裝置的瀏覽器；不是雲端同步。Guest 可用，Email 是本機示範，Google 驗證未連接。舊示範行程保留示範標示。
 
 ## 相關文件

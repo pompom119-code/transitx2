@@ -93,6 +93,16 @@ test('TDX requires credentials/free plan and caches bearer token server-side',as
  await tdx('Route/City/Taipei');await tdx('Route/City/Taipei')
  assert.equal(calls.length,2);assert.equal(calls[1].options.headers.Authorization,'Bearer test-token')
 })
+test('TDX wrong or unsaved key reports AUTH instead of a temporary outage',async()=>{
+ const tdx=createTdx({TDX_CLIENT_ID:'test-only',TDX_CLIENT_SECRET:'wrong',TDX_FREE_PLAN_CONFIRMED:'true'},async()=>Response.json({error:'invalid_client'},{status:400}))
+ await assert.rejects(tdx('Route/City/Taipei'),e=>e.code==='AUTH'&&e.upstreamStatus===400&&/金鑰無效/.test(e.message))
+})
+test('TDX request interval follows TDX_MIN_INTERVAL_MS',async()=>{
+ const tdx=createTdx({TDX_CLIENT_ID:'test-only',TDX_CLIENT_SECRET:'test-only',TDX_FREE_PLAN_CONFIRMED:'true',TDX_MIN_INTERVAL_MS:'0'},async url=>url.includes('/token')?Response.json({access_token:'test-token',expires_in:3600}):Response.json([]))
+ const started=Date.now()
+ await tdx('Route/City/Taipei');await tdx('Stop/City/Taipei');await tdx('Route/City/NewTaipei')
+ assert.ok(Date.now()-started<2000)
+})
 test('location denied remains an actionable search-safe error, no fake coordinates',async()=>{
  const previous=Object.getOwnPropertyDescriptor(globalThis,'navigator')
  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{geolocation:{getCurrentPosition:(_yes,no)=>no({code:1})}}})

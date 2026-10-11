@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "functions": {
+    "api/planner/plan.js": { "maxDuration": 60 },
     "api/ai/plan.js": { "maxDuration": 60 },
     "api/ai/resolve-draft.js": { "maxDuration": 60 }
   },
