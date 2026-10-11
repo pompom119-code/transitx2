@@ -2,7 +2,7 @@
 
 ## 已選方案
 
-- 正式預設：Google Gemini Developer API 的 `gemini-3.7-flash`，由同源 Node `/api/ai/plan` 轉送。瀏覽器不持有 key。伺服器先讀取官方 `models.list`，只從已核對 Standard Free Tier 與 Structured Output 的型號選擇：3.7 Flash → 3.5 Flash → 3.5 Flash-Lite → 3.1 Flash-Lite → 3.8 Flash → 3.6 Flash。503 對每個模型有限退避重試後才切換；任何模型成功才接受結果。
+- 正式預設：Google Gemini Developer API 的 `gemini-3.5-flash-lite`，由同源 Node `/api/ai/plan` 轉送。瀏覽器不持有 key。伺服器先讀取官方 `models.list`，只從已核對 Standard Free Tier 與 Structured Output 的型號選擇：3.5 Flash-Lite → 3.1 Flash-Lite → 3.8 Flash → 3.7 Flash → 3.6 Flash → 3.5 Flash。Flash-Lite 優先，因為 2026-10 的免費額度為 15 RPM／500 RPD（Flash 為 5 RPM／20 RPD），實測回應也最快。每個模型額度分開計算：依序使用同一個模型，額度或容量用完才換下一個。503 對每個模型有限退避重試後才切換；429 每分鐘額度用完時暫停該模型到 Google 指定的重試時間，每日額度用完時暫停到太平洋時間午夜重置。任何模型成功才接受結果；全部額度用完時回報額度錯誤。可用 `GEMINI_MODEL` 指定首選模型。
 - 本機 WebGPU Qwen 僅供開發者明確設定 `VITE_AI_RUNTIME=local` 後實驗，不是一般使用者預設。
 - Google 官方的 Standard Free Tier 對本模型輸入與輸出標示 **Free of charge**。但每個專案實際 RPM、TPM、RPD 上限請以 AI Studio 的當前額度頁為準，不能保證固定數字，也不能假定付費專案不會計費。
 - Free Tier 提交的資料可能用於改善 Google 產品；請勿提交敏感個資。
@@ -22,7 +22,7 @@
 
 流程保留兩階段：旅行設定與條件 → Travel Strategy → 逐日 DayDraft → JSON Schema → 語意驗證 → 真實地理查核 → Trip State。餐飲只由 AI 決定區域、食物與理由；沒有 Restaurant Provider 前，不會把 AI 自編店名、地址、營業時間或評分當成事實。
 
-伺服器工作階段採 HttpOnly cookie。每個 session 至多 5 次新規劃／日、兩次開始相隔至少 20 秒，同一 session 的進行中請求不重複送出。同條件成功規劃保留 10 分鐘短期快取；編輯與顯式 fresh 請求繞過快取。Gemini provider 每個存活 Node 實例另設 40 次模型呼叫／UTC 日保守上限（因 6 模型 fallback 在全站 503 時單次最多 18 次呼叫）；一份多天行程會使用多次模型呼叫。取消後不會把不完整行程存入快取或 Trip State。
+伺服器工作階段採 HttpOnly cookie。每個 session 至多 5 次新規劃／日、兩次開始相隔至少 20 秒，同一 session 的進行中請求不重複送出。同條件成功規劃保留 10 分鐘短期快取；編輯與顯式 fresh 請求繞過快取。Gemini provider 每個存活 Node 實例另設模型呼叫／UTC 日上限，預設 1000 次（6 個模型免費額度合計約 1,080 次／日），可用 `GEMINI_MAX_CALLS_PER_DAY` 調整；一份多天行程會使用多次模型呼叫。取消後不會把不完整行程存入快取或 Trip State。
 
 上述記憶體限流與快取是**單一 process／單一暖機函式實例**，不是跨 Vercel 實例的全站硬配額。公開對不受信任訪客開放時，還需要持久化共享計數器／速率限制與濫用防護；不要把目前限制誤認成零費用保證。Google 專案本身也應保持 Free Tier。
 

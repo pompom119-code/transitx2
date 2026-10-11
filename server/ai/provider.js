@@ -6,7 +6,29 @@ export const MODEL = FREE_STRUCTURED_MODELS[0]
 const MAX_ATTEMPTS_PER_MODEL = 3
 const OVERLOAD_COOLDOWN_MS = 5 * 60_000
 const CATALOG_TTL_MS = 15 * 60_000
-const MAX_CALLS_PER_PROCESS_DAY = 40
+const MINUTE_QUOTA_COOLDOWN_MS = 60_000
+// Safety cap per Node process and UTC day. The free tier of all six models adds
+// up to about 1,080 requests per day, so the default leaves that quota usable.
+const DEFAULT_MAX_CALLS_PER_PROCESS_DAY = 1000
+
+// Google resets daily Gemini quotas at midnight Pacific time.
+function msUntilPacificMidnight(now) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hourCycle: 'h23',
+    hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(now)).map(part => [part.type, Number(part.value)]))
+  return 86_400_000 - ((parts.hour * 60 + parts.minute) * 60 + parts.second) * 1000 - new Date(now).getMilliseconds()
+}
+
+// A Gemini 429 names the exhausted quota in QuotaFailure details, e.g.
+// GenerateRequestsPerDayPerProjectPerModel-FreeTier, and may carry RetryInfo.
+function quotaLimit(error, now) {
+  const details = error.upstreamBody?.error?.details || []
+  const perDay = details.some(detail => (detail.violations || []).some(violation => /PerDay/i.test(String(violation.quotaId || violation.quotaMetric || ''))))
+  if (perDay) return { daily: true, until: now + msUntilPacificMidnight(now) }
+  const delay = details.find(detail => detail.retryDelay)?.retryDelay
+  const seconds = typeof delay === 'string' ? Number.parseFloat(delay) : NaN
+  const waitMs = Number.isFinite(seconds) ? Math.ceil(seconds * 1000) : error.retryAfterMs ?? MINUTE_QUOTA_COOLDOWN_MS
+  return { daily: false, until: now + waitMs }
+}
 
 function wait(ms, signal) {
   if (signal?.aborted) return Promise.reject(new ApiError('CANCELLED', '規劃已取消。', 499))
@@ -32,6 +54,9 @@ export class GeminiAIProvider {
     this.catalogExpires = 0
     this.catalogPromise = null
     this.overloadedUntil = new Map()
+    this.quotaLimitedUntil = new Map()
+    const cap = Number(env.GEMINI_MAX_CALLS_PER_DAY)
+    this.maxCallsPerDay = Number.isInteger(cap) && cap > 0 ? cap : DEFAULT_MAX_CALLS_PER_PROCESS_DAY
   }
 
   ready() { return Boolean(this.env.GEMINI_API_KEY && this.env.GEMINI_FREE_TIER_CONFIRMED === 'true') }
@@ -59,11 +84,16 @@ export class GeminiAIProvider {
       throw new ApiError('AI_MODEL_CONFIG', '指定的 AI 模型不在此金鑰可用的免費模型清單中。', 503)
     }
     const ordered = eligible.includes(preferred) ? [preferred, ...eligible.filter(id => id !== preferred)] : eligible
+    // Use one model until its quota or capacity runs out, then the next one.
+    let quotaRetryAt = null, dailyOnly = true
+    const noteQuota = (until, daily) => { quotaRetryAt = Math.min(quotaRetryAt ?? until, until); dailyOnly &&= daily }
     for (const id of ordered) {
       if ((this.overloadedUntil.get(id) || 0) > this.now()) continue
+      const limited = this.quotaLimitedUntil.get(id)
+      if (limited && limited.until > this.now()) { noteQuota(limited.until, limited.daily); continue }
       for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_MODEL; attempt++) {
         if (signal?.aborted) throw new ApiError('CANCELLED', '規劃已取消。', 499)
-        if (this.calls >= MAX_CALLS_PER_PROCESS_DAY) throw new ApiError('RATE_LIMIT', 'AI 服務今日安全上限已用完，請明天再試。', 429)
+        if (this.calls >= this.maxCallsPerDay) throw new ApiError('RATE_LIMIT', 'AI 服務今日安全上限已用完，請明天再試。', 429)
         this.calls++
         let data
         try {
@@ -84,12 +114,15 @@ export class GeminiAIProvider {
             this.overloadedUntil.set(id, this.now() + OVERLOAD_COOLDOWN_MS)
             break
           }
-          // 400/401/403 are configuration/auth errors. 429 is a quota signal,
-          // not permission to evade the limit by trying another model.
-          if (error.upstreamStatus === 429 && error.retryAfterMs != null && error.retryAfterMs <= 10_000 && attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
-            await this.sleep(error.retryAfterMs, signal)
-            continue
+          // Each model has its own free-tier quota. A per-minute 429 parks the
+          // model briefly; a per-day 429 parks it until Google's daily reset.
+          if (error.upstreamStatus === 429) {
+            const limit = quotaLimit(error, this.now())
+            this.quotaLimitedUntil.set(id, limit)
+            noteQuota(limit.until, limit.daily)
+            break
           }
+          // 400/401/403 are configuration/auth errors and never fall back.
           if (error.upstreamStatus === 400) throw new ApiError('AI_REQUEST_INVALID', 'AI 請求格式無效，請聯絡維護者。', 502)
           throw error
         }
@@ -101,6 +134,11 @@ export class GeminiAIProvider {
         this.model = id
         return value
       }
+    }
+    if (quotaRetryAt != null) {
+      const error = new ApiError('RATE_LIMIT', dailyOnly ? 'AI 今日免費額度已用完，請明天再試。' : 'AI 請求較多，請稍候一分鐘再試。', 429)
+      error.retryAfterMs = Math.max(0, quotaRetryAt - this.now())
+      throw error
     }
     throw new ApiError('AI_UNAVAILABLE', 'AI 目前比較忙，請稍後再試。', 503)
   }

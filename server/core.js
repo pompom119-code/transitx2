@@ -1,5 +1,5 @@
 export class ApiError extends Error {
-  constructor(code, message, status = 502) { super(message); this.code = code; this.status = status; this.upstreamStatus = null; this.retryAfterMs = null }
+  constructor(code, message, status = 502) { super(message); this.code = code; this.status = status; this.upstreamStatus = null; this.upstreamBody = null; this.retryAfterMs = null }
 }
 export async function requestJson(url, options = {}, fetcher = fetch, timeout = 20000) {
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
@@ -10,6 +10,8 @@ export async function requestJson(url, options = {}, fetcher = fetch, timeout = 
       const error = new ApiError(status === 429 ? 'RATE_LIMIT' : status === 401 || status === 403 ? 'AUTH' : 'UPSTREAM',
         status === 429 ? '服務額度或請求頻率已達上限，請稍後再試。' : status === 401 || status === 403 ? '服務憑證或存取權限無效，請檢查伺服器設定。' : '資料服務暫時無法使用，請稍後再試。', status === 429 ? 429 : 502)
       error.upstreamStatus = status
+      // Kept for callers that need structured details, e.g. which quota a 429 hit.
+      error.upstreamBody = await response.json().catch(() => null)
       if (status === 429) {
         const retry = response.headers.get('retry-after')
         if (retry != null) {

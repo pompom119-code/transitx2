@@ -60,44 +60,90 @@ test('bounded overload retries exhaust each eligible model and return safe unava
   assert.equal(calls, FREE_STRUCTURED_MODELS.length * 3)
 })
 
-test('catalog selects only documented eligible IDs and switches after three 503 responses', async () => {
+test('catalog selects only documented eligible IDs, prefers Flash-Lite and switches after three 503 responses', async () => {
+  assert.deepEqual(FREE_STRUCTURED_MODELS.slice(0, 2), ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'])
   const calls = []
   const waits = []
   const provider = createGemini(testEnv, withCatalog(async url => {
     const id = url.match(/models\/(.*):generateContent/)?.[1]
     calls.push(id)
-    return id === 'gemini-3.5-flash-lite' ? Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"status":"ready"}' }] } }] }) : new Response('', { status: 503 })
+    return id === 'gemini-3.7-flash' ? Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"status":"ready"}' }] } }] }) : new Response('', { status: 503 })
   }, ['unapproved-model', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']), { sleep: async ms => { waits.push(ms) } })
   assert.equal((await provider.generate('test', {})).status, 'ready')
-  assert.deepEqual(calls, ['gemini-3.7-flash', 'gemini-3.7-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'])
+  assert.deepEqual(calls, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.7-flash'])
   assert.deepEqual(waits, [600, 1200])
-  assert.equal(provider.model, 'gemini-3.5-flash-lite')
+  assert.equal(provider.model, 'gemini-3.7-flash')
   calls.length = 0
   await provider.generate('test', {})
-  assert.deepEqual(calls, ['gemini-3.5-flash-lite'])
+  assert.deepEqual(calls, ['gemini-3.7-flash'])
 })
 
-test('auth and malformed request errors never fall back; bounded 429 honors Retry-After', async () => {
+test('auth and malformed request errors never fall back; a 429 moves to the next model', async () => {
   for (const status of [400, 401, 403]) {
     let calls = 0
     const provider = createGemini(testEnv, withCatalog(async () => { calls++; return new Response('', { status }) }), instant)
     await assert.rejects(provider.generate('test', {}), error => status === 400 ? error.code === 'AI_REQUEST_INVALID' : error.upstreamStatus === status)
     assert.equal(calls, 1)
   }
-  let calls = 0
+  const calls = []
   const waits = []
-  const provider = createGemini(testEnv, withCatalog(async () => {
-    calls++
-    return calls === 1 ? new Response('', { status: 429, headers: { 'Retry-After': '2' } })
+  const provider = createGemini(testEnv, withCatalog(async url => {
+    calls.push(url.match(/models\/(.*):generateContent/)?.[1])
+    return calls.length === 1 ? new Response('', { status: 429, headers: { 'Retry-After': '2' } })
       : Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"status":"ready"}' }] } }] })
   }), { sleep: async ms => { waits.push(ms) } })
   assert.equal((await provider.generate('test', {})).status, 'ready')
-  assert.equal(calls, 2)
-  assert.deepEqual(waits, [2000])
+  assert.deepEqual(calls, FREE_STRUCTURED_MODELS.slice(0, 2))
+  assert.deepEqual(waits, [])
   let limitedCalls = 0
   const limited = createGemini(testEnv, withCatalog(async () => { limitedCalls++; return new Response('', { status: 429, headers: { 'Retry-After': '60' } }) }), instant)
-  await assert.rejects(limited.generate('test', {}), error => error.code === 'RATE_LIMIT' && error.retryAfterMs === 60000)
-  assert.equal(limitedCalls, 1)
+  await assert.rejects(limited.generate('test', {}), error => error.code === 'RATE_LIMIT' && error.retryAfterMs >= 59000 && error.retryAfterMs <= 60000)
+  assert.equal(limitedCalls, FREE_STRUCTURED_MODELS.length)
+})
+
+const quota429 = (quotaId, retryDelay) => Response.json({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', details: [
+  { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId }] },
+  ...(retryDelay ? [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay }] : []),
+] } }, { status: 429 })
+const ok = () => Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"status":"ready"}' }] } }] })
+
+test('per-day 429 parks a model until the Pacific-midnight reset; per-minute 429 only for its retry delay', async () => {
+  let now = Date.parse('2026-10-11T12:00:00-07:00')
+  const calls = []
+  const exhausted = new Set(['gemini-3.5-flash-lite'])
+  const provider = createGemini(testEnv, withCatalog(async url => {
+    const id = url.match(/models\/(.*):generateContent/)?.[1]
+    calls.push(id)
+    if (exhausted.has(id)) return quota429('GenerateRequestsPerDayPerProjectPerModel-FreeTier')
+    if (id === 'gemini-3.1-flash-lite' && calls.length === 2) return quota429('GenerateRequestsPerMinutePerProjectPerModel-FreeTier', '30s')
+    return ok()
+  }), { ...instant, now: () => now })
+  await provider.generate('test', {})
+  assert.deepEqual(calls, ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'])
+  calls.length = 0
+  now += 31_000
+  await provider.generate('test', {})
+  assert.deepEqual(calls, ['gemini-3.1-flash-lite'], 'daily-exhausted model skipped; per-minute model back after 30 s')
+  calls.length = 0
+  exhausted.clear()
+  now = Date.parse('2026-10-12T00:00:01-07:00')
+  await provider.generate('test', {})
+  assert.deepEqual(calls, ['gemini-3.5-flash-lite'], 'first model returns after the daily reset')
+})
+
+test('all models out of daily quota reports a daily-limit message; process cap is configurable', async () => {
+  let calls = 0
+  const provider = createGemini(testEnv, withCatalog(async () => { calls++; return quota429('GenerateRequestsPerDayPerProjectPerModel-FreeTier') }), instant)
+  await assert.rejects(provider.generate('test', {}), error => error.code === 'RATE_LIMIT' && /今日免費額度已用完/.test(error.message) && error.retryAfterMs > 0)
+  assert.equal(calls, FREE_STRUCTURED_MODELS.length)
+  await assert.rejects(provider.generate('test', {}), error => error.code === 'RATE_LIMIT')
+  assert.equal(calls, FREE_STRUCTURED_MODELS.length, 'exhausted models are not called again')
+
+  let capped = 0
+  const small = createGemini({ ...testEnv, GEMINI_MAX_CALLS_PER_DAY: '2' }, withCatalog(async () => { capped++; return ok() }), instant)
+  await small.generate('a', {}); await small.generate('b', {})
+  await assert.rejects(small.generate('c', {}), error => error.code === 'RATE_LIMIT' && /安全上限/.test(error.message))
+  assert.equal(capped, 2)
 })
 
 test('identical plans cache briefly; fresh/edit operations bypass and sessions cool down', async () => {
