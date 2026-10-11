@@ -1,16 +1,20 @@
 import { ApiError, requestJson } from '../core.js'
 
-// Each ID below was present in this key's 2026-09-28 official models.list
-// response, has generateContent, and is listed by Google as Structured Output
-// capable with free Standard input/output. The live list is checked again at
-// runtime; this allowlist is not a guess or a substitute for account access.
+// Each ID below was present in this key's official models.list response, has
+// generateContent, and is listed by Google as Structured Output capable with
+// free Standard input/output. The live list is checked again at runtime; this
+// allowlist is not a guess or a substitute for account access.
+// Order = preference. Each model has its own free-tier quota; the provider uses
+// one model until its quota or capacity runs out, then moves to the next.
+// Flash-Lite models come first: 2026-10 free tier allows 15 RPM / 500 RPD for
+// them versus 5 RPM / 20 RPD for Flash, and they answered fastest in testing.
 export const FREE_STRUCTURED_MODELS = Object.freeze([
-  'gemini-3.7-flash',
-  'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-3.8-flash',
+  'gemini-3.7-flash',
   'gemini-3.6-flash',
+  'gemini-3.5-flash',
 ])
 
 export async function listEligibleModels(env, fetcher = fetch, signal) {
